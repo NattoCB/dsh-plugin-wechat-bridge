@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 
 		// ── CSS (settings-tab scoped) ──────────────────────────────────────
-		const css = ".wxb_section{width:100%;max-width:760px;display:flex;flex-direction:column;gap:14px}.wxb_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}.wxb_card h3{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}.wxb_row{display:flex;align-items:center;justify-content:space-between;gap:10px}.wxb_label{color:var(--dsw-alias-label-secondary);font-size:13px}.wxb_value{color:var(--dsw-alias-label-tertiary);font-size:12px}.wxb_status{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary);font-size:13px}.wxb_dot{border-radius:999px;width:7px;height:7px;display:inline-block;background:var(--dsw-alias-label-tertiary)}.wxb_dot[data-on=\"true\"]{background:var(--dsw-alias-state-success-primary)}.wxb_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:6px;padding:4px 12px;font-size:13px}.wxb_btn:hover{background:var(--dsw-alias-interactive-bg-hover)}.wxb_btn[data-danger=\"true\"]{color:var(--dsw-alias-state-error-primary)}.wxb_btn[data-primary=\"true\"]{background:var(--dsw-alias-state-business-primary);border-color:transparent;color:#fff}.wxb_accounts{display:flex;flex-direction:column;gap:8px}.wxb_account{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:4px}.wxb_accountTop{display:flex;align-items:center;justify-content:space-between;gap:8px}.wxb_qr{display:flex;flex-direction:column;align-items:center;gap:10px}.wxb_qr img{width:256px;height:256px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.wxb_err{color:var(--dsw-alias-state-error-primary);font-size:13px}";
+		const css = ".wxb_section{width:100%;max-width:760px;display:flex;flex-direction:column;gap:14px}.wxb_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}.wxb_card h3{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}.wxb_row{display:flex;align-items:center;justify-content:space-between;gap:10px}.wxb_label{color:var(--dsw-alias-label-secondary);font-size:13px}.wxb_value{color:var(--dsw-alias-label-tertiary);font-size:12px}.wxb_status{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary);font-size:13px}.wxb_dot{border-radius:999px;width:7px;height:7px;display:inline-block;background:var(--dsw-alias-label-tertiary)}.wxb_dot[data-on=\"true\"]{background:var(--dsw-alias-state-success-primary)}.wxb_btn{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;border-radius:6px;padding:4px 12px;font-size:13px}.wxb_btn:hover{background:var(--dsw-alias-interactive-bg-hover)}.wxb_btn[data-danger=\"true\"]{color:var(--dsw-alias-state-error-primary)}.wxb_btn[data-primary=\"true\"]{background:var(--dsw-alias-state-business-primary);border-color:transparent;color:#fff}.wxb_accounts{display:flex;flex-direction:column;gap:8px}.wxb_account{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:4px}.wxb_accountTop{display:flex;align-items:center;justify-content:space-between;gap:8px}.wxb_qr{display:flex;flex-direction:column;align-items:center;gap:10px}.wxb_qr img{width:256px;height:256px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.wxb_err{color:var(--dsw-alias-state-error-primary);font-size:13px}.wxb_sel{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;border-radius:6px;padding:4px 8px;font-size:13px;max-width:320px;min-width:200px}.wxb_sel:disabled{opacity:.5;cursor:default}.wxb_field{display:flex;flex-direction:column;gap:4px}";
 		const tagId = "dsh-plugin-wechat-bridge/settings.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -39,11 +39,20 @@ window.__ModuleLoader__.load({
 			const [error, setError] = useState(null);
 			const [qr, setQr] = useState(null); // { sessionId, qrImage }
 			const [busy, setBusy] = useState(false);
+			const [options, setOptions] = useState({ providers: [] }); // model dropdown options
+			const [selProvider, setSelProvider] = useState("");
+			const [selModel, setSelModel] = useState("");
 
 			const load = useCallback(async () => {
 				try {
-					const s = await api("GET", "status");
+					const [s, o] = await Promise.all([
+						api("GET", "status"),
+						api("GET", "model-options"),
+					]);
 					setStatus(s);
+					setOptions(o ?? { providers: [] });
+					setSelProvider((prev) => prev || s.defaultProvider || "");
+					setSelModel((prev) => prev || s.defaultModel || "");
 					setError(null);
 				} catch (e) {
 					setError(e.message);
@@ -100,6 +109,47 @@ window.__ModuleLoader__.load({
 						}),
 					] }),
 					jsx("div", { className: "wxb_value", children: "轮询已绑定账号的消息并驱动 DSH agent 会话；启用状态持久化到 settings.yaml。" }),
+				] }),
+				jsxs("div", { className: "wxb_card", children: [
+					jsx("h3", { children: "默认模型" }),
+					jsxs("div", { className: "wxb_row", children: [
+						jsxs("span", { className: "wxb_field", children: [
+							jsx("span", { className: "wxb_label", children: "Provider" }),
+							jsx("select", {
+								className: "wxb_sel",
+								disabled: busy,
+								value: selProvider,
+								onChange: (ev) => { setSelProvider(ev.target.value); setSelModel(""); },
+								children: [
+									jsx("option", { value: "", children: "跟随全局默认" }),
+									...(options.providers || []).map((pr) =>
+										jsx("option", { value: pr.id, children: pr.name || pr.id }, pr.id)),
+								],
+							}),
+						] }),
+						jsxs("span", { className: "wxb_field", children: [
+							jsx("span", { className: "wxb_label", children: "Model" }),
+							jsx("select", {
+								className: "wxb_sel",
+								disabled: busy,
+								value: selModel,
+								onChange: (ev) => setSelModel(ev.target.value),
+								children: [
+									jsx("option", { value: "", children: "跟随全局默认" }),
+									...((options.providers || []).find((pr) => pr.id === selProvider)?.models || []).map((m) =>
+										jsx("option", { value: m.id, children: m.name || m.id }, m.id)),
+								],
+							}),
+						] }),
+						jsx("button", {
+							className: "wxb_btn",
+							"data-primary": "true",
+							disabled: busy,
+							onClick: () => act(() => api("POST", "config", { defaultProvider: selProvider, defaultModel: selModel })),
+							children: "保存",
+						}),
+					] }),
+					jsx("div", { className: "wxb_value", children: "微信会话使用的模型；留空则跟随 DSH 全局默认。选择持久化到 settings.yaml。" }),
 				] }),
 				jsxs("div", { className: "wxb_card", children: [
 					jsx("h3", { children: "已绑定账号" }),

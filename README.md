@@ -73,6 +73,8 @@ dsh web
 打开 DSH 网页左下角 **Settings →「微信桥接」** 页签:
 
 - **状态卡**:桥接运行状态 + 启用/停用按钮(热插拔,点击立即生效,无需重启)
+- **默认模型卡**:两个下拉框选择微信会话使用的 provider / model(选项来自 DSH
+  已注册的模型,无需手动输入);留空则跟随全局默认,保存后持久化到 settings.yaml
 - **账号卡**:已绑定账号列表(账号 id、token 状态、最近登录时间)+ 移除按钮
 - **扫码绑定**:点击「扫码绑定账号」→ 页面内直接显示二维码(PNG data URL)→
   每 2 秒自动轮询扫码状态 → 微信确认后自动保存账号并启用桥接
@@ -97,6 +99,8 @@ dsh web
    wechat-bridge:
      enabled: true        # 实时开关;每次变更服务都会重新应用
      mediaEnabled: true
+     defaultProvider: '' # 桥接会话 provider(空 = 跟随全局默认)
+     defaultModel: ''     # 桥接会话 model(空 = 跟随全局默认)
    ```
    修改 `enabled` 保存后即重新读取并启停轮询循环。
 
@@ -110,8 +114,8 @@ UI 页签调用插件自带的 HTTP API(`/wechat-bridge/*`),由宿主 webserver 
 | `enabled` | `false` | 设置项缺失时的开机自启开关 |
 | `mediaEnabled` | `true` | (预留)接收入站媒体 |
 | `dataDir` | `~/.dsh/wechat-bridge` | `state.json`(账号/令牌/偏移)所在目录 |
-| `defaultModel` | `''` | 桥接会话的模型覆盖(否则用全局默认) |
-| `defaultProvider` | `''` | 桥接会话的提供商覆盖 |
+| `defaultModel` | `''` | 桥接会话的模型覆盖(否则用全局默认;可在设置页签选择) |
+| `defaultProvider` | `''` | 桥接会话的提供商覆盖(否则用全局默认;可在设置页签选择) |
 | `defaultCwd` | `''` | 新会话的工作目录(否则 `~/.dsh/wechat-bridge/WeChatSpace`) |
 
 ## 文件结构

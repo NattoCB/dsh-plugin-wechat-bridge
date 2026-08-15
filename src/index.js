@@ -41,6 +41,8 @@ const SETTINGS_NS = settingsNamespace('wechat-bridge');
 const SETTINGS_SCHEMA = z.object({
   enabled: z.boolean().default(false),
   mediaEnabled: z.boolean().default(true),
+  defaultProvider: z.string().default(''),
+  defaultModel: z.string().default(''),
 });
 
 /** Local-calendar day key YYYY-MM-DD in this machine's timezone. */
@@ -130,10 +132,17 @@ class WeixinBridgeService {
     // Canonical DSH settings wiring: registers the `wechat-bridge` namespace
     // (so writes persist to settings.yaml), uses composition config as base,
     // and re-applies enable/disable live on every settings change.
-    this._settingsSource = () => ({ enabled: this.config.enabled, mediaEnabled: this.config.mediaEnabled });
+    this._settingsSource = () => ({
+      enabled: this.config.enabled,
+      mediaEnabled: this.config.mediaEnabled,
+      defaultProvider: this.config.defaultProvider || '',
+      defaultModel: this.config.defaultModel || '',
+    });
     installSettingsSection(ctx, SETTINGS_NS, SETTINGS_SCHEMA, {
       enabled: this.config.enabled,
       mediaEnabled: this.config.mediaEnabled,
+      defaultProvider: this.config.defaultProvider || '',
+      defaultModel: this.config.defaultModel || '',
     }, {
       setSource: (current) => { this._settingsSource = current; },
       onChange: () => this._applySettings(),
@@ -428,8 +437,9 @@ class WeixinBridgeService {
     const defaultModel = this.ctx.get('agentDefaultModel');
     if (!agents || !sessions) throw new Error('agents/sessions service unavailable');
 
-    const provider = this.config.defaultProvider || defaultModel?.currentSelection?.()?.provider;
-    const model = this.config.defaultModel || defaultModel?.currentSelection?.()?.model;
+    const current = this._settingsSource();
+    const provider = current?.defaultProvider || defaultModel?.currentSelection?.()?.provider;
+    const model = current?.defaultModel || defaultModel?.currentSelection?.()?.model;
     const selection = provider && model ? { provider, model } : defaultModel?.currentSelection?.();
     // Sessions live under <DSH_HOME>/wechat-bridge/WeChatSpace by default, not
     // the process cwd (~), so wechat conversations don't scatter sessions into
@@ -586,6 +596,31 @@ class WeixinBridgeService {
     return { status: s.status };
   }
 
+  /**
+   * Enumerate selectable provider/model options from the live `llm` service:
+   * registered provider routes plus each provider's adapter-discovered models.
+   * The settings UI renders these as dropdown options (no free-text input).
+   */
+  async _modelOptions() {
+    const llm = this.ctx.get('llm');
+    if (!llm?.listProviders) return { providers: [] };
+    const providers = [];
+    for (const info of llm.listProviders()) {
+      const models = [];
+      if (typeof llm.listModels === 'function') {
+        try {
+          for (const m of await llm.listModels(info.id) || []) {
+            models.push({ id: m.id, name: m.name || m.id });
+          }
+        } catch (err) {
+          this.ctx.logger?.warn?.(`[wechat-bridge] model list failed for ${info.id}: ${err.message}`);
+        }
+      }
+      providers.push({ id: info.id, name: info.name || info.id, models });
+    }
+    return { providers };
+  }
+
   // ── HTTP API for the settings tab ──
 
   async httpHandler(req, res) {
@@ -602,8 +637,11 @@ class WeixinBridgeService {
       const url = new URL(req.url, 'http://x');
       const path = url.pathname.replace(/^\/wechat-bridge\/?/, '');
       if (req.method === 'GET' && path === 'status') {
+        const current = this._settingsSource();
         return send(200, {
           running: this.running,
+          defaultProvider: current?.defaultProvider || '',
+          defaultModel: current?.defaultModel || '',
           accounts: this.store.listAccounts().map((a) => ({
             accountId: a.account_id,
             name: a.name,
@@ -612,6 +650,20 @@ class WeixinBridgeService {
             lastLoginAt: a.last_login_at,
           })),
         });
+      }
+      if (req.method === 'GET' && path === 'model-options') {
+        return send(200, await this._modelOptions());
+      }
+      if (req.method === 'POST' && path === 'config') {
+        const body = await readBody();
+        const settings = this.ctx.get('settings');
+        if (!settings) return send(500, { error: 'settings service unavailable' });
+        const patch = {};
+        if (typeof body.defaultProvider === 'string') patch.defaultProvider = body.defaultProvider;
+        if (typeof body.defaultModel === 'string') patch.defaultModel = body.defaultModel;
+        if (Object.keys(patch).length === 0) return send(400, { error: 'no fields to update' });
+        await settings.update(SETTINGS_NS, patch);
+        return send(200, { ok: true, ...this._settingsSource() });
       }
       if (req.method === 'POST' && path === 'enable') { await this._persistEnabled(true); this.setEnabled(true); return send(200, { ok: true }); }
       if (req.method === 'POST' && path === 'disable') { await this._persistEnabled(false); this.setEnabled(false); return send(200, { ok: true }); }

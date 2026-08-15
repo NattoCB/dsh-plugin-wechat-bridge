@@ -87,6 +87,9 @@ immediately. Otherwise it idles until enabled (see below).
 Open **Settings → "微信桥接" (WeChat bridge)** in the bottom-left of the DSH web UI:
 
 - **Status card**: bridge running state + enable/disable button (hot-plug, effective immediately, no restart).
+- **Default model card**: two dropdowns pick the provider/model used by bridged
+  sessions (options come from DSH's registered models, no free-text input);
+  leave empty to follow the global default, saved to settings.yaml.
 - **Accounts card**: bound account list (account id, token status, last login time) + remove button.
 - **QR bind**: click "扫码绑定账号" (bind account) → a QR code renders inline (PNG data URL) →
   scan status auto-polls every 2 seconds → once confirmed in WeChat, the account is saved and the bridge enabled.
@@ -111,6 +114,8 @@ Three independent controls, all live without restart:
    wechat-bridge:
      enabled: true        # live toggle; the service re-applies on every change
      mediaEnabled: true
+     defaultProvider: '' # bridged-session provider (empty = follow global default)
+     defaultModel: ''     # bridged-session model (empty = follow global default)
    ```
    Changing `enabled` and saving re-reads the flag and starts/stops the loop.
 
@@ -124,8 +129,8 @@ webserver — no external service involved.
 | `enabled` | `false` | boot-time autostart if settings flag absent |
 | `mediaEnabled` | `true` | (reserved) attach inbound media |
 | `dataDir` | `~/.dsh/wechat-bridge` | where `state.json` (accounts/tokens/offsets) lives |
-| `defaultModel` | `''` | override model for bridged sessions (else global default) |
-| `defaultProvider` | `''` | override provider for bridged sessions |
+| `defaultModel` | `''` | override model for bridged sessions (else global default; selectable in the settings tab) |
+| `defaultProvider` | `''` | override provider for bridged sessions (else global default; selectable in the settings tab) |
 | `defaultCwd` | `''` | working dir for new sessions (else `~/.dsh/wechat-bridge/WeChatSpace`) |
 
 ## Files
