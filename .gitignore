@@ -1,0 +1,19 @@
+# ── vendored runtime deps stay; dev-installed host packages go ──
+# The plugin ships its own qrcode/pngjs/dijkstrajs (QR rendering) and resolves
+# @deepseek-ai/* + schemastery from the DSH profile's flat node_modules.
+node_modules/*
+!node_modules/qrcode/
+!node_modules/pngjs/
+!node_modules/dijkstrajs/
+
+# ── agent / development process artifacts ──
+*.bak-*
+*.corrupt-*
+*.quarantined-*
+*.tmp
+state.json
+poll.lock
+.DS_Store
+
+# ── logs ──
+*.log

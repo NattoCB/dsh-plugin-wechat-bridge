@@ -1,0 +1,22 @@
+# DSH bundle patch for the WeChat (ilink bot) bridge plugin.
+# Registers one long-lived service that polls WeChat and drives agent sessions.
+# Hot plug is controlled by the `wechat-bridge.enabled` settings flag (edited
+# live in $DSH_HOME/settings.yaml, hot-reloaded) and the /wechat slash command.
+
+- insert:
+    - id: wechat-bridge
+      name: '@jasper/dsh-plugin-wechat-bridge'
+      inject:
+        - settings
+        - sessions
+        - agents
+        - sessionPersistence
+        - agentDefaultModel
+        - commands
+      config:
+        enabled: false
+        mediaEnabled: true
+        dataDir: ''
+        defaultModel: ''
+        defaultProvider: ''
+        defaultCwd: ''
