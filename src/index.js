@@ -23,16 +23,19 @@ import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-sett
 import { Store } from './store.js';
 import {
   getUpdates,
+  sendMessage,
   sendTextMessage,
   sendTyping,
   getConfig,
   startLoginQr,
   pollLoginQrStatus,
 } from './weixin-api.js';
-import { encodeWeixinChatId } from './weixin-ids.js';
+import { encodeWeixinChatId, decodeWeixinChatId } from './weixin-ids.js';
 import { ERRCODE_SESSION_EXPIRED } from './weixin-types.js';
+import { downloadMediaFromItem, uploadMediaToCdn } from './weixin-media.js';
 import { installModelSelection } from '@deepseek-ai/dsh-agent';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
+import { defineTool } from '@deepseek-ai/dsh-tools';
 import QRCode from 'qrcode';
 
 const name = 'wechat-bridge';
@@ -121,6 +124,10 @@ class WeixinBridgeService {
       input: { hint: '[enable|disable|status|qrlogin|accounts|rm <accountId>]' },
       handler: (inv) => this.handleCommand(inv),
     });
+
+    // Register the outbound media tool so the agent can send generated
+    // images/files back to the WeChat peer it is talking to.
+    ctx.inject(['tools', 'attachments'], (sctx) => { this._registerSendFileTool(sctx); });
 
     // One-time rename of the settings.yaml section from the weixin-bridge era
     // so an existing `enabled: true` survives the plugin rename. The settings
@@ -387,11 +394,21 @@ class WeixinBridgeService {
       if (parts.length) text = `[引用: ${parts.join(' | ')}]\n${text}`;
     }
     text = text.trim();
-    if (!text) return; // attachments out of scope for v0.1 text-only
 
-    // command passthrough inside WeChat? treat as normal prompt.
+    // Media items (image / file / video / voice): download, decrypt, and park
+    // them in the inbox directory. Images are also offered as native image
+    // content when the selected model declares image input.
+    const mediaEnabled = this._settingsSource()?.mediaEnabled !== false;
+    const content = [];
+    if (text) content.push({ type: 'text', text });
+    if (mediaEnabled) {
+      const mediaBlocks = await this._collectInboundMedia(account, creds, msg, chatId);
+      content.push(...mediaBlocks);
+    }
+    if (content.length === 0) return;
+
     try {
-      const reply = await this._driveAgent(chatId, text);
+      const reply = await this._driveAgent(chatId, content);
       const contextToken = this.store.getContextToken(accountId, peer);
       if (!contextToken) {
         this.ctx.logger?.warn?.(`[wechat-bridge] no context_token for ${peer}; cannot reply`);
@@ -415,15 +432,86 @@ class WeixinBridgeService {
     }
   }
 
+  /** Directory where inbound media files are parked for the agent to read. */
+  mediaInboxDir() {
+    return path.join(this.workspaceDir(), 'inbox', localDateKey());
+  }
+
+  /** Whether the model selected for bridged sessions declares image input. */
+  async _modelAcceptsImages() {
+    try {
+      const llm = this.ctx.get('llm');
+      if (!llm?.listModels) return false;
+      const defaultModel = this.ctx.get('agentDefaultModel');
+      const current = this._settingsSource();
+      const provider = current?.defaultProvider || defaultModel?.currentSelection?.()?.provider;
+      const model = current?.defaultModel || defaultModel?.currentSelection?.()?.model;
+      if (!provider || !model) return false;
+      const info = (await llm.listModels(provider)).find((m) => m.id === model);
+      return info?.inputModalities?.includes('image') === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Download and decrypt every media item of one inbound message. Files are
+   * parked under the inbox directory and described to the agent by path; an
+   * image is additionally attached as native image content when the selected
+   * model declares image input and the attachment store is available.
+   */
+  async _collectInboundMedia(account, creds, msg, chatId) {
+    const blocks = [];
+    const attachments = this.ctx.get('attachments');
+    const acceptsImages = attachments && await this._modelAcceptsImages();
+    for (const item of msg.item_list || []) {
+      if (![2, 3, 4, 5].includes(item.type)) continue;
+      let media;
+      try {
+        media = await downloadMediaFromItem(item, creds.cdnBaseUrl);
+      } catch (err) {
+        this.ctx.logger?.warn?.(`[wechat-bridge] media download failed: ${err.message}`);
+        continue;
+      }
+      if (!media) continue;
+
+      const inbox = this.mediaInboxDir();
+      try {
+        await fsp.mkdir(inbox, { recursive: true });
+        const name = `${Date.now()}-${media.fileName || `media-${item.type}.bin`}`;
+        const target = path.join(inbox, name);
+        await fsp.writeFile(target, media.data);
+        const note = `[微信${media.kind === 'image' ? '图片' : media.kind === 'file' ? '文件' : media.kind === 'video' ? '视频' : '语音'}已保存: ${target}]`;
+        blocks.push({ type: 'text', text: note });
+
+        if (media.kind === 'image' && acceptsImages) {
+          try {
+            const ref = await attachments.saveImage({
+              data: new Uint8Array(media.data),
+              mediaType: 'image/jpeg',
+              name: media.fileName || 'wechat-image',
+            });
+            blocks.push({ type: 'image', attachment: ref });
+          } catch (err) {
+            this.ctx.logger?.warn?.(`[wechat-bridge] image attach failed: ${err.message}`);
+          }
+        }
+      } catch (err) {
+        this.ctx.logger?.warn?.(`[wechat-bridge] media park failed: ${err.message}`);
+      }
+    }
+    return blocks;
+  }
+
   // Drive one DSH agent session per peer per local calendar day. Messages for
   // the same chat are serialized through a per-chat promise chain: two inbound
   // messages must never drive the same session concurrently (concurrent writers
   // were the seq-gap corruption trigger of the 2026-08-15 incident).
-  _driveAgent(chatId, text) {
+  _driveAgent(chatId, content) {
     const prev = this._driveQueues.get(chatId) ?? Promise.resolve();
     const run = prev.then(
-      () => this._driveAgentOnce(chatId, text),
-      () => this._driveAgentOnce(chatId, text),
+      () => this._driveAgentOnce(chatId, content),
+      () => this._driveAgentOnce(chatId, content),
     );
     this._driveQueues.set(chatId, run);
     return run.finally(() => {
@@ -431,7 +519,7 @@ class WeixinBridgeService {
     });
   }
 
-  async _driveAgentOnce(chatId, text) {
+  async _driveAgentOnce(chatId, content) {
     const agents = this.ctx.get('agents');
     const sessions = this.ctx.get('sessions');
     const defaultModel = this.ctx.get('agentDefaultModel');
@@ -502,7 +590,7 @@ class WeixinBridgeService {
     }
     await agent.whenIdle();
     const firstSeq = agent.session.seq;
-    agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }));
+    agent.followup(createUserMessage({ content, source: { kind: 'user' } }));
     await agent.whenIdle();
     await sessions.flush(agent.session);
 
@@ -541,6 +629,123 @@ class WeixinBridgeService {
       this.ctx.logger?.warn?.(`[wechat-bridge] quarantine attempt failed: ${err.message}`);
       return false;
     }
+  }
+
+  /**
+   * Register the `wechat_send_file` tool: the agent uploads a local image,
+   * video, or file to the WeChat CDN and sends it to the peer of the session
+   * it is driving. The peer is resolved from the session id
+   * (`wechat-<chatId>-<dayKey>`), so no recipient argument is needed.
+   */
+  _registerSendFileTool(sctx) {
+    try {
+      const tools = sctx.tools;
+      if (!tools?.register) return;
+      tools.register(defineTool({
+        name: 'wechat_send_file',
+        description: 'Send a local file to the WeChat user of the current conversation. Uploads the file to the WeChat CDN and delivers it as an image, video, or file attachment (routed by file extension). Use it after generating an image, chart, report, or any artifact the WeChat user asked for.',
+        parameters: {
+          filePath: {
+            type: 'string',
+            required: true,
+            description: 'Absolute path to the local file to send.',
+          },
+          caption: {
+            type: 'string',
+            description: 'Optional text caption sent as a separate message before the media.',
+          },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              ok: { type: 'boolean', required: true },
+              kind: { type: 'string' },
+            },
+          },
+          render: (args, value) => [{
+            type: 'text',
+            text: value.ok
+              ? `已发送${value.kind === 'image' ? '图片' : value.kind === 'video' ? '视频' : '文件'}到微信: ${args.filePath}`
+              : '发送失败',
+          }],
+        },
+        async execute(args, exec) {
+          const sessionId = exec.agent?.session?.id;
+          if (!sessionId) throw new Error('wechat_send_file has no calling agent session');
+          return this._sendFileToPeer(sessionId, args.filePath, args.caption);
+        },
+      }));
+    } catch (err) {
+      this.ctx.logger?.warn?.(`[wechat-bridge] send-file tool registration failed: ${err.message}`);
+    }
+  }
+
+  /** Resolve `{ accountId, peer }` from a wechat session id, if it is one. */
+  _peerFromSessionId(sessionId) {
+    const m = /^wechat-(.+)-\d{4}-\d{2}-\d{2}$/.exec(sessionId);
+    if (!m) return null;
+    const decoded = decodeWeixinChatId(m[1]);
+    if (!decoded) return null;
+    return decoded;
+  }
+
+  /** Upload one local file and deliver it to the WeChat peer of a session. */
+  async _sendFileToPeer(sessionId, filePath, caption) {
+    const ext = path.extname(filePath).toLowerCase();
+    let kind = 'file';
+    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext)) kind = 'image';
+    else if (['.mp4', '.mov', '.m4v'].includes(ext)) kind = 'video';
+
+    const peerInfo = this._peerFromSessionId(sessionId);
+    if (!peerInfo) throw new Error(`cannot resolve WeChat peer from session "${sessionId}"`);
+    const { accountId, peerUserId } = peerInfo;
+
+    const account = this.store.getAccount(accountId);
+    if (!account?.token) throw new Error(`no stored account for ${accountId}`);
+    const creds = {
+      botToken: account.token,
+      ilinkBotId: account.account_id,
+      baseUrl: account.base_url || 'https://ilinkai.weixin.qq.com',
+      cdnBaseUrl: account.cdn_base_url || 'https://novac2c.cdn.weixin.qq.com/c2c',
+    };
+    const contextToken = this.store.getContextToken(accountId, peerUserId);
+    if (!contextToken) throw new Error(`no context_token for ${peerUserId}; cannot send`);
+
+    const data = await fsp.readFile(filePath);
+    if (data.length === 0) throw new Error(`file is empty: ${filePath}`);
+    if (data.length > 100 * 1024 * 1024) throw new Error(`file exceeds 100MB: ${filePath}`);
+
+    const uploaded = await uploadMediaToCdn(creds, getUploadUrl, data, peerUserId, kind);
+
+    // Build the outbound media item per the ilink protocol.
+    const media = {
+      encrypt_query_param: uploaded.encryptQueryParam,
+      aes_key: uploaded.aesKeyBase64,
+      encrypt_type: 1,
+    };
+    let item;
+    if (kind === 'image') {
+      item = { type: 2, image_item: { media, mid_size: uploaded.fileSizeCiphertext } };
+    } else if (kind === 'video') {
+      item = { type: 5, video_item: { media, video_size: uploaded.fileSizeCiphertext } };
+    } else {
+      item = {
+        type: 4,
+        file_item: {
+          media,
+          file_name: path.basename(filePath),
+          len: String(uploaded.fileSize),
+        },
+      };
+    }
+
+    if (caption) {
+      await sendTextMessage(creds, peerUserId, String(caption).slice(0, 4000), contextToken);
+    }
+    await sendMessage(creds, peerUserId, [item], contextToken);
+    return { ok: true, kind };
   }
 
   // ── workspace attachment (sidebar visibility) ──
@@ -685,7 +890,7 @@ class WeixinBridgeService {
         const body = await readBody();
         const text = String(body.text || 'ping').slice(0, 2000);
         const chatId = String(body.chatId || `selftest::${Date.now()}`).slice(0, 200);
-        const reply = await this._driveAgent(chatId, text);
+        const reply = await this._driveAgent(chatId, [{ type: 'text', text }]);
         return send(200, { ok: true, reply: reply.slice(0, 4000) });
       }
       if (req.method === 'POST' && path === 'refresh') {

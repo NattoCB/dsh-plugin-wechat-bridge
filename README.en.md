@@ -51,6 +51,13 @@ self-contained for DSH (JSON-file persistence instead of SQLite, no OpenClaw run
   `session.jsonl.zstd.corrupt-<ts>` and a fresh same-day session is created,
   so one bad log cannot fail every message of the day.
 - Sends the agent's reply back to WeChat as plain-text chunks (4096 chars × max 5).
+- **Inbound media**: images/files/videos/voice sent from WeChat are downloaded
+  from the CDN, AES-decrypted, parked under `WeChatSpace/inbox/<date>/`, and
+  described by path in the message; when the selected model declares image
+  input, images are also attached as native image content.
+- **Outbound media**: the agent can call the `wechat_send_file` tool to upload
+  a locally generated image/video/file to the WeChat CDN and send it to the
+  current peer (routed by extension, optional text caption).
 - Stores `context_token` per peer so it can reply after restarts (WeChat requires it).
 - Pauses an account for 60 min on `errcode -14` (session expired).
 - Migrates pre-rename state automatically: the `~/.dsh/weixin-bridge` data directory
@@ -161,7 +168,8 @@ node_modules/       vendored qrcode/pngjs/dijkstrajs (QR data-URL rendering, no 
 
 ## Notes / scope
 
-- Text-only outbound (WeChat limitation); AI-initiated images/files not yet wired.
+- Outbound media is agent-initiated via the `wechat_send_file` tool; inbound
+  voice is parked on disk only (no transcription).
 - Private chat only; no group semantics.
 - Requires a WeChat account with `ilink bot` permission (`bot_type=3`).
 - Persistence is a single atomic JSON file (`state.json`) — sufficient for one DSH process.

@@ -38,6 +38,11 @@ DSH(DeepSeek Harness)捆绑插件:把**微信(ilink bot)**私聊消息桥接进 
   把产物隔离为 `session.jsonl.zstd.corrupt-<ts>` 并重建当天会话,一个坏日志
   不会让整天消息全部失败。
 - 把 agent 回复以纯文本分片发回微信(4096 字符 × 最多 5 段)。
+- **入站媒体**:微信发来的图片/文件/视频/语音自动从 CDN 下载并 AES 解密,
+  存入 `WeChatSpace/inbox/<日期>/` 并在消息中注明路径;所选模型声明图像输入时,
+  图片还会作为原生 image 内容附带给模型。
+- **出站媒体**:agent 可调用 `wechat_send_file` 工具,把本地生成的图片/视频/
+  文件上传微信 CDN 并发给当前对话人(按扩展名路由,可选文字说明)。
 - 按联系人保存 `context_token`,重启后仍可回复(微信要求)。
 - 账号遇 `errcode -14`(会话过期)暂停 60 分钟。
 - 自动迁移更名前的状态:`~/.dsh/weixin-bridge` 数据目录与 `weixin-bridge:`
@@ -144,7 +149,8 @@ node_modules/       vendored qrcode/pngjs/dijkstrajs(二维码 data-URL 渲染,�
 
 ## 说明与范围
 
-- 仅文本出站(微信限制);AI 主动发图/文件尚未接入。
+- 出站媒体通过 `wechat_send_file` 工具由 agent 主动触发;语音入站仅落盘,
+  不做转写。
 - 仅私聊,无群聊语义。
 - 需要具备 `ilink bot` 权限(`bot_type=3`)的微信账号。
 - 持久化是单个原子 JSON 文件(`state.json`)——对单个 DSH 进程足够。

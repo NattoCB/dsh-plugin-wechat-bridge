@@ -85,13 +85,19 @@ export async function sendTextMessage(creds, toUserId, text, contextToken) {
   return sendMessage(creds, toUserId, [{ type: 1, text_item: { text } }], contextToken);
 }
 
-export async function getUploadUrl(creds, fileKey, fileType, fileSize, fileMd5, cipherFileSize) {
+export async function getUploadUrl(creds, params) {
+  const {
+    filekey, media_type, to_user_id, rawsize, rawfilemd5, filesize, no_need_thumb, aeskey,
+  } = params;
   return weixinRequest(creds, 'getuploadurl', {
-    file_key: fileKey,
-    file_type: fileType,
-    file_size: fileSize,
-    file_md5: fileMd5,
-    cipher_file_size: cipherFileSize,
+    filekey,
+    media_type,
+    to_user_id,
+    rawsize,
+    rawfilemd5,
+    filesize,
+    no_need_thumb,
+    aeskey,
   });
 }
 

@@ -13,6 +13,8 @@
         - sessionPersistence
         - agentDefaultModel
         - commands
+        - tools
+        - attachments
       config:
         enabled: false
         mediaEnabled: true
