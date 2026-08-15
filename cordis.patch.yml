@@ -5,7 +5,7 @@
 
 - insert:
     - id: wechat-bridge
-      name: '@jasper/dsh-plugin-wechat-bridge'
+      name: 'dsh-plugin-wechat-bridge'
       inject:
         - settings
         - sessions

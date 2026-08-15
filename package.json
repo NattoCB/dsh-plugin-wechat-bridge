@@ -1,5 +1,5 @@
 {
-  "name": "@jasper/dsh-plugin-wechat-bridge",
+  "name": "dsh-plugin-wechat-bridge",
   "version": "0.1.0",
   "description": "DSH bundle plugin: bridge WeChat (ilink bot) messages into a DSH agent session, with runtime enable/disable hot-plug and a Settings UI tab.",
   "type": "module",

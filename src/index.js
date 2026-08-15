@@ -1,4 +1,4 @@
-// @jasper/dsh-plugin-wechat-bridge
+// dsh-plugin-wechat-bridge
 //
 // A DSH cordis bundle that bridges WeChat (ilink bot) private-chat messages into
 // a DSH agent session, and sends the agent's reply back as plain text.

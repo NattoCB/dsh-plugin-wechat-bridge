@@ -1,6 +1,6 @@
 <img src="banner.png" width="100%" alt="dsh-plugin-wechat-bridge — WeChat (ilink bot) bridge for DeepSeek Harness">
 
-# @jasper/dsh-plugin-wechat-bridge
+# dsh-plugin-wechat-bridge
 
 DSH (DeepSeek Harness) bundle plugin that bridges **WeChat (ilink bot)** private-chat
 messages into a DSH agent session and streams the reply back as plain text — with
@@ -65,12 +65,12 @@ self-contained for DSH (JSON-file persistence instead of SQLite, no OpenClaw run
 # 1. copy the plugin under the web profile's node_modules
 #    (keep vendored deps: qrcode/pngjs/dijkstrajs live in the plugin's own node_modules)
 SRC=/path/to/dsh-plugin-wechat-bridge
-DST=~/.dsh/profiles/web/node_modules/@jasper/dsh-plugin-wechat-bridge
+DST=~/.dsh/profiles/web/node_modules/dsh-plugin-wechat-bridge
 rm -rf "$DST" && cp -R "$SRC" "$DST"
 
 # 2. register in the profile manifest (~/.dsh/profiles/web/package.json)
-#    dependencies: add  "@jasper/dsh-plugin-wechat-bridge": "file:<SRC>"
-#    dsh.profile.bundles: add "@jasper/dsh-plugin-wechat-bridge"
+#    dependencies: add  "dsh-plugin-wechat-bridge": "file:<SRC>"
+#    dsh.profile.bundles: add "dsh-plugin-wechat-bridge"
 
 # 3. (re)start dsh web — the bundle patch mounts the `wechat-bridge` service
 #    and serves the client settings tab at /plugins/<id>/client.js.
