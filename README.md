@@ -38,6 +38,9 @@ DSH(DeepSeek Harness)捆绑插件:把**微信(ilink bot)**私聊消息桥接进 
   把产物隔离为 `session.jsonl.zstd.corrupt-<ts>` 并重建当天会话,一个坏日志
   不会让整天消息全部失败。
 - 把 agent 回复以纯文本分片发回微信(4096 字符 × 最多 5 段)。
+- **上下文注入**:每天会话创建时自动注入用户全局 `~/.dsh/AGENTS.md` 全文和
+  可用 skill 目录(`<available_skills>`),与 GUI 会话等价——微信里的 agent 同样
+  遵守全局纪律并可按名加载 skill。
 - **入站媒体**:微信发来的图片/文件/视频/语音自动从 CDN 下载并 AES 解密,
   存入 `WeChatSpace/inbox/<日期>/` 并在消息中注明路径;所选模型声明图像输入时,
   图片还会作为原生 image 内容附带给模型。

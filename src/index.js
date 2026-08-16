@@ -36,6 +36,7 @@ import { downloadMediaFromItem, uploadMediaToCdn } from './weixin-media.js';
 import { installModelSelection } from '@deepseek-ai/dsh-agent';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import { isModelInvocable } from '@deepseek-ai/dsh-skill';
 import QRCode from 'qrcode';
 
 const name = 'wechat-bridge';
@@ -587,6 +588,10 @@ class WeixinBridgeService {
       } catch (err) {
         this.ctx.logger?.warn?.(`[wechat-bridge] title append failed for ${sessionId}: ${err.message}`);
       }
+      // Headless agents skip the GUI enter pipeline, so the user-global
+      // AGENTS.md and the skill catalog are injected here explicitly — once
+      // per day, when the day's session is created.
+      await this._injectDailyContext(agent, cwd);
     }
     await agent.whenIdle();
     const firstSeq = agent.session.seq;
@@ -746,6 +751,78 @@ class WeixinBridgeService {
     }
     await sendMessage(creds, peerUserId, [item], contextToken);
     return { ok: true, kind };
+  }
+
+  /**
+   * Inject the context a headless agent misses from the GUI enter pipeline:
+   * the user-global AGENTS.md (when readable) and the model-invocable skill
+   * catalog, both as queued model-facing user messages claimed at the next
+   * pre-step. Best-effort: any failure leaves the session fully functional.
+   */
+  async _injectDailyContext(agent, cwd) {
+    // 1. ~/.dsh/AGENTS.md (same system-reminder framing as dsh-agent-instructions)
+    const home = process.env.DSH_HOME || path.join(process.env.HOME, '.dsh');
+    const agentsMd = path.join(home, 'AGENTS.md');
+    try {
+      const text = await fsp.readFile(agentsMd, 'utf8');
+      const body = text.trim();
+      if (body) {
+        agent.inject(createUserMessage({
+          content: [{
+            type: 'text',
+            text: [
+              '<system-reminder>',
+              'The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.',
+              '',
+              `Instructions from: ${agentsMd}`,
+              '',
+              body,
+              '</system-reminder>',
+            ].join('\n'),
+          }],
+          source: { kind: 'plugin', plugin: 'dsh-plugin-wechat-bridge' },
+        }));
+        this.ctx.logger?.info?.(`[wechat-bridge] injected ${agentsMd}`);
+      }
+    } catch (err) {
+      this.ctx.logger?.warn?.(`[wechat-bridge] AGENTS.md injection skipped: ${err.message}`);
+    }
+
+    // 2. skill catalog (same <available_skills> framing as dsh-tool-skill)
+    try {
+      const skills = this.ctx.get('skills');
+      if (!skills?.snapshot) return;
+      const snapshot = await skills.snapshot({ cwd, scope: agent });
+      if (!snapshot?.complete) return;
+      const entries = snapshot.skills.filter(isModelInvocable).map((skill) => {
+        const desc = String(skill.description || '').replace(/\s+/g, ' ').trim();
+        const max = 500;
+        const normalized = desc.length <= max ? desc : `${desc.slice(0, max - 3)}...`;
+        return `- \`${skill.name}\`: ${normalized}`;
+      });
+      if (entries.length === 0) return;
+      agent.inject(createUserMessage({
+        content: [{
+          type: 'text',
+          text: [
+            '<system-reminder>',
+            'A skill is a reusable set of task-specific instructions. The following skills are available in this session:',
+            '',
+            '<available_skills>',
+            ...entries,
+            '</available_skills>',
+            '',
+            'If the user names a skill, or the task clearly matches a skill\'s description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill\'s instructions until it has been loaded.',
+            'A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.',
+            '</system-reminder>',
+          ].join('\n'),
+        }],
+        source: { kind: 'plugin', plugin: 'dsh-plugin-wechat-bridge' },
+      }));
+      this.ctx.logger?.info?.(`[wechat-bridge] injected skill catalog (${entries.length} skills)`);
+    } catch (err) {
+      this.ctx.logger?.warn?.(`[wechat-bridge] skill catalog injection skipped: ${err.message}`);
+    }
   }
 
   // ── workspace attachment (sidebar visibility) ──

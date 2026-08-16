@@ -31,7 +31,8 @@
     "qrcode": "^1.5.4",
     "pngjs": "^7.0.0",
     "dijkstrajs": "^1.0.3",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-skill": "^0.1.0-rc.6"
   },
   "peerDependencies": {
     "react": "^18.2.0",

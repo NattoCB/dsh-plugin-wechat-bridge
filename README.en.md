@@ -51,6 +51,9 @@ self-contained for DSH (JSON-file persistence instead of SQLite, no OpenClaw run
   `session.jsonl.zstd.corrupt-<ts>` and a fresh same-day session is created,
   so one bad log cannot fail every message of the day.
 - Sends the agent's reply back to WeChat as plain-text chunks (4096 chars × max 5).
+- **Context injection**: the day's session is created with the user-global
+  `~/.dsh/AGENTS.md` and the available skill catalog (`<available_skills>`)
+  injected up front — the same context a GUI session receives.
 - **Inbound media**: images/files/videos/voice sent from WeChat are downloaded
   from the CDN, AES-decrypted, parked under `WeChatSpace/inbox/<date>/`, and
   described by path in the message; when the selected model declares image
