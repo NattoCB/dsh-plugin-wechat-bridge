@@ -54,6 +54,15 @@ self-contained for DSH (JSON-file persistence instead of SQLite, no OpenClaw run
 - **Context injection**: the day's session is created with the user-global
   `~/.dsh/AGENTS.md` and the available skill catalog (`<available_skills>`)
   injected up front — the same context a GUI session receives.
+- **Interactive option UI disabled (hang-proofing)**: in a WeChat session the
+  interactive-option tool (`ask_user_question`) is wired, but its answer
+  channel is the **DSH web GUI**, not WeChat — the options render in the
+  browser, the phone user cannot see or click them, and the agent **blocks
+  forever** unless someone operates the desktop UI. A leading `system-reminder`
+  is injected into each day's session that forbids the interactive-option flow
+  and instructs the model to inline questions + options as plain text instead;
+  the user replies with a normal WeChat message and the same daily session
+  continues automatically.
 - **Inbound media**: images/files/videos/voice sent from WeChat are downloaded
   from the CDN, AES-decrypted, parked under `WeChatSpace/inbox/<date>/`, and
   described by path in the message; when the selected model declares image
