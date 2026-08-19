@@ -4,7 +4,7 @@
 
 > **语言 / Language**：**中文** ｜ [English](./README.en.md)
 
-DSH(DeepSeek Harness)捆绑插件:把**微信(ilink bot)**私聊消息桥接进 DSH agent 会话,并把回复以纯文本流式发回——支持**运行时启停热插拔**,无需重启 `dsh web`。
+> **把 DSH agent 装进你的微信。** DSH(DeepSeek Harness)捆绑插件:把**微信(ilink bot)**私聊消息桥接进 DSH agent 会话,并把回复以纯文本流式发回——支持**运行时启停热插拔**,无需重启 `dsh web`。
 
 > 一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件:
 > 装进 `web` profile,扫码绑定一个微信机器人账号,就能在微信里和你的 DSH agent
@@ -12,6 +12,12 @@ DSH(DeepSeek Harness)捆绑插件:把**微信(ilink bot)**私聊消息桥接进 
 
 移植自 CodePilot 的微信桥接子系统(`src/lib/bridge/adapters/weixin/*`),
 对 DSH 自包含(JSON 文件持久化替代 SQLite,无 OpenClaw 运行时依赖)。
+
+## 为什么需要它
+
+在电脑前才能和 agent 对话,意味着你被锁在工作台边。装上这个插件,微信就是你的
+随身终端:扫码绑定一次,之后任何私聊消息都会驱动 DSH agent,回复以纯文本流式发回
+手机——人在外面,agent 照常干活。
 
 ## 亮点
 
@@ -165,3 +171,9 @@ node_modules/       vendored qrcode/pngjs/dijkstrajs(二维码 data-URL 渲染,�
 - 持久化是单个原子 JSON 文件(`state.json`)——对单个 DSH 进程足够。
 - 按聊天队列在单进程内串行;跨进程轮询锁与消息去重覆盖多进程场景
   (仍建议保持端口单属主)。
+
+---
+
+**试试看:** 装进 web profile、扫码绑定一个 `bot_type=3` 的微信账号,然后在微信里
+给机器人发一句「今天有什么安排」——agent 会像在 GUI 里一样回答你。问题或想法?
+[提 issue](https://github.com/NattoCB/dsh-plugin-wechat-bridge/issues)。

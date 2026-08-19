@@ -4,9 +4,9 @@
 
 > **Language**：[中文](./README.md) ｜ **English**
 
-DSH (DeepSeek Harness) bundle plugin that bridges **WeChat (ilink bot)** private-chat
-messages into a DSH agent session and streams the reply back as plain text — with
-**runtime enable/disable hot-plug** (no `dsh web` restart required).
+> **Put your DSH agent in your WeChat.** DSH (DeepSeek Harness) bundle plugin that bridges **WeChat (ilink bot)** private-chat
+> messages into a DSH agent session and streams the reply back as plain text — with
+> **runtime enable/disable hot-plug** (no `dsh web` restart required).
 
 > A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin:
 > install into the `web` profile, scan a QR code to bind a WeChat bot account,
@@ -15,6 +15,13 @@ messages into a DSH agent session and streams the reply back as plain text — w
 
 Ported from CodePilot's WeChat bridge subsystem (`src/lib/bridge/adapters/weixin/*`),
 self-contained for DSH (JSON-file persistence instead of SQLite, no OpenClaw runtime dep).
+
+## Why
+
+Being able to talk to your agent only at the desk keeps you chained to the
+workstation. With this plugin, WeChat becomes your pocket terminal: scan a QR
+code once, then any private message drives the DSH agent and the reply streams
+back to your phone — the agent keeps working while you are away.
 
 ## Highlights
 
@@ -187,3 +194,9 @@ node_modules/       vendored qrcode/pngjs/dijkstrajs (QR data-URL rendering, no 
 - Persistence is a single atomic JSON file (`state.json`) — sufficient for one DSH process.
 - The per-chat queue serializes within one process; the cross-process poll lock and
   message dedupe cover the multi-process case (keep the port single-owned anyway).
+
+---
+
+**Try it:** install into the web profile, scan a QR code to bind a
+`bot_type=3` WeChat account, then message the bot "what's on today" — the agent
+answers as if you were in the GUI. Issues or ideas? [Open an issue](https://github.com/NattoCB/dsh-plugin-wechat-bridge/issues).
