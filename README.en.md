@@ -68,6 +68,14 @@ self-contained for DSH (JSON-file persistence instead of SQLite, no OpenClaw run
 
 ## Install (into the `web` profile)
 
+One-line install:
+
+```bash
+dsh plugin --profile web add github:NattoCB/dsh-plugin-wechat-bridge
+```
+
+Manual install steps follow.
+
 > Prereq: the harness resolves bundle deps from the flat `~/.dsh/profiles/node_modules`
 > fallback, so **do not** symlink the package from outside the profile tree for ESM —
 > copy it under the profile. (A `file:` dependency + `dsh.profile.bundles` entry is the
