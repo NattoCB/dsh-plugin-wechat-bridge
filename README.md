@@ -53,6 +53,14 @@ DSH(DeepSeek Harness)捆绑插件:把**微信(ilink bot)**私聊消息桥接进 
 
 ## 安装(装入 `web` profile)
 
+一条命令安装:
+
+```bash
+dsh plugin --profile web add github:NattoCB/dsh-plugin-wechat-bridge
+```
+
+手动安装见下。
+
 > 前提:harness 从扁平的 `~/.dsh/profiles/node_modules` 回退解析 bundle 依赖,
 > 因此**不要**把 profile 树外的包符号链接进来(ESM 限制)——请复制到 profile 下。
 > (`file:` 依赖 + `dsh.profile.bundles` 条目是正式注册方式;复制的副本才是实际启动的产物。)
