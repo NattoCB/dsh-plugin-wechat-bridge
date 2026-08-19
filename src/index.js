@@ -49,6 +49,32 @@ const SETTINGS_SCHEMA = z.object({
   defaultModel: z.string().default(''),
 });
 
+/**
+ * Leading system-reminder injected into every WeChat session. The interactive
+ * option UI (the `ask_user_question` tool) is fully wired here — the same
+ * `userQuestions` provider that powers normal GUI sessions is live in the
+ * `dsh web` process — but its human-answer channel is the DSH web GUI, not
+ * WeChat. Options render in the browser; the phone peer sees nothing and
+ * cannot click, so unless someone operates the desktop UI the agent blocks
+ * forever and the WeChat reply never arrives. Instruct the model to inline
+ * questions + options as plain text on the WeChat side instead.
+ */
+const WECHAT_INTERACTION_GUARD = [
+  '<system-reminder>',
+  'WeChat bridge session — interactive option UI is routed to the DSH web GUI, NOT to WeChat.',
+  '',
+  'This session is driven by a WeChat private-chat message and replies as plain text. The `ask_user_question` tool works here, but its answer channel is the DSH web browser UI: the options render there, the phone user neither sees nor can click them. If nobody operates the desktop UI, the agent blocks forever and the WeChat reply never arrives.',
+  '',
+  'HARD RULE:',
+  '- NEVER call `ask_user_question` or any tool that renders interactive options/buttons for this WeChat session — the answer lives on the desktop GUI, not on the phone.',
+  '- When you need the user to choose, decide, or confirm, put the question AND every candidate option directly into your WeChat text reply (e.g. numbered or lettered options, each with a one-line explanation), and ask the user to reply with their selection as a normal WeChat message.',
+  '- The user\'s next plain-text message automatically drives this same daily session again, so the conversation continues naturally — no UI click required.',
+  '- Open questions are fine as plain text; just never route them through the interactive option-rendering tool.',
+  '',
+  '微信(手机)侧看不到也不会渲染 DSH 界面里的可点击选项:选项只弹在浏览器 GUI 上,手机用户无法点选,无人操作电脑界面时 agent 会一直阻塞、微信回复永远到不了。请勿使用 `ask_user_question` 之类的交互式选项工具;需要用户选择时,把问题和各个选项直接写成纯文本回复,让用户以普通微信消息回复即可;下一条消息会自动继续当天会话。',
+  '</system-reminder>',
+].join('\n');
+
 /** Local-calendar day key YYYY-MM-DD in this machine's timezone. */
 function localDateKey(now = new Date()) {
   const y = now.getFullYear();
@@ -524,7 +550,12 @@ class WeixinBridgeService {
     const agents = this.ctx.get('agents');
     const sessions = this.ctx.get('sessions');
     const defaultModel = this.ctx.get('agentDefaultModel');
-    if (!agents || !sessions) throw new Error('agents/sessions service unavailable');
+    if (!agents || !sessions) {
+      const _probe = ['settings', 'sessions', 'agents', 'sessionPersistence', 'agentDefaultModel', 'commands', 'tools', 'attachments', 'llm'];
+      const _desc = (v) => (v === void 0 ? 'undefined' : v === null ? 'null' : typeof v);
+      const _diag = _probe.map((k) => `${k}=${_desc(this.ctx.get(k))}`).join(' ');
+      throw new Error(`agents/sessions service unavailable | ctx-probe: ${_diag}`);
+    }
 
     const current = this._settingsSource();
     const provider = current?.defaultProvider || defaultModel?.currentSelection?.()?.provider;
@@ -760,6 +791,26 @@ class WeixinBridgeService {
    * pre-step. Best-effort: any failure leaves the session fully functional.
    */
   async _injectDailyContext(agent, cwd) {
+    // 0. WeChat interaction guard: the interactive option UI is wired (same
+    // `userQuestions` provider as GUI sessions) but its answer channel is the
+    // DSH web GUI, not WeChat — options render in the browser, the phone user
+    // cannot see or click them, and the reply would never arrive unless
+    // someone operates the desktop UI. Instruct the model to inline questions
+    // + options as plain text instead. Injected first so it is the strongest,
+    // earliest context the model sees for this session kind.
+    try {
+      agent.inject(createUserMessage({
+        content: [{
+          type: 'text',
+          text: WECHAT_INTERACTION_GUARD,
+        }],
+        source: { kind: 'plugin', plugin: 'dsh-plugin-wechat-bridge' },
+      }));
+      this.ctx.logger?.info?.('[wechat-bridge] injected WeChat interaction guard (no interactive option UI)');
+    } catch (err) {
+      this.ctx.logger?.warn?.(`[wechat-bridge] interaction guard injection skipped: ${err.message}`);
+    }
+
     // 1. ~/.dsh/AGENTS.md (same system-reminder framing as dsh-agent-instructions)
     const home = process.env.DSH_HOME || path.join(process.env.HOME, '.dsh');
     const agentsMd = path.join(home, 'AGENTS.md');
