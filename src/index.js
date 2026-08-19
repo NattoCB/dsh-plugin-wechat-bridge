@@ -550,7 +550,12 @@ class WeixinBridgeService {
     const agents = this.ctx.get('agents');
     const sessions = this.ctx.get('sessions');
     const defaultModel = this.ctx.get('agentDefaultModel');
-    if (!agents || !sessions) throw new Error('agents/sessions service unavailable');
+    if (!agents || !sessions) {
+      const _probe = ['settings', 'sessions', 'agents', 'sessionPersistence', 'agentDefaultModel', 'commands', 'tools', 'attachments', 'llm'];
+      const _desc = (v) => (v === void 0 ? 'undefined' : v === null ? 'null' : typeof v);
+      const _diag = _probe.map((k) => `${k}=${_desc(this.ctx.get(k))}`).join(' ');
+      throw new Error(`agents/sessions service unavailable | ctx-probe: ${_diag}`);
+    }
 
     const current = this._settingsSource();
     const provider = current?.defaultProvider || defaultModel?.currentSelection?.()?.provider;
