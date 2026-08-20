@@ -174,7 +174,10 @@ export async function uploadMediaToCdn(creds, getUploadUrl, data, toUserId, medi
 
   return {
     encryptQueryParam: downloadParam,
-    aesKeyBase64: aeskey.toString('base64'),
+    // WeChat's CDNMedia.aes_key is the AES key hex string re-encoded as UTF-8
+    // then base64 (see openclaw-weixin send.ts: Buffer.from(aeskey).toString("base64"));
+    // the receiving client decodes it back to the 32-char hex and hex-decodes it.
+    aesKeyBase64: Buffer.from(aeskey.toString('hex')).toString('base64'),
     fileSize: rawsize,
     fileSizeCiphertext: filesize,
   };
