@@ -36,7 +36,6 @@ import { downloadMediaFromItem, uploadMediaToCdn } from './weixin-media.js';
 import { installModelSelection } from '@deepseek-ai/dsh-agent';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { defineTool } from '@deepseek-ai/dsh-tools';
-import { isModelInvocable } from '@deepseek-ai/dsh-skill';
 import QRCode from 'qrcode';
 
 const name = 'wechat-bridge';
@@ -566,6 +565,24 @@ class WeixinBridgeService {
     // the home project directory. The directory is created on demand.
     const cwd = this.config.defaultCwd || this.workspaceDir();
 
+    // Compose the same agent preset the GUI enter pipeline composes (default
+    // preset, resolved BEFORE the session exists so the header can record it).
+    // Without this, the WeChat agent runs against the empty global layer: the
+    // tools and prompt sections the model is told about (bash, skill, fs, ...)
+    // have no execution backend, every call fails with `unknown tool`, and the
+    // failed call poisons the persisted session — the recurring "headless"
+    // failure. A broken or absent preset roster degrades to the old
+    // global-layer behavior with a warning instead of failing every message.
+    const presets = this.ctx.get('agentPresets');
+    let presetId;
+    if (presets) {
+      try {
+        presetId = (await presets.resolve(undefined)).id;
+      } catch (err) {
+        this.ctx.logger?.warn?.(`[wechat-bridge] agent preset resolution failed; running without preset tools: ${err.message}`);
+      }
+    }
+
     // One session per peer per local calendar day (this machine's timezone).
     // The date suffix rotates the session id at local midnight; a day without
     // conversation never materializes a session because creation stays lazy
@@ -573,10 +590,21 @@ class WeixinBridgeService {
     const dayKey = localDateKey();
     const sessionId = `wechat-${chatId}-${dayKey}`;
     const title = dayKey;
-    // AgentSetup must return void or { commit() } — installModelSelection
-    // returns a plain disposer function, so wrap it (headless pattern).
-    const setup = (ac) => {
+    // Mirror the GUI enter pipeline's composeAgent(): install the pinned
+    // model selection, mount the preset (full capability surface), and deny
+    // the one preset tool whose answer channel (the DSH web GUI) the phone
+    // peer cannot reach. Mount failure propagates so the drive fails visibly
+    // instead of silently producing a tool-less session.
+    const setup = async (ac) => {
       installModelSelection(ac, { current: selection, assembled: undefined });
+      if (presets && presetId !== undefined) {
+        await presets.mount(ac, presetId);
+        try {
+          ac.tools.restrict({ deny: ['ask_user_question'] });
+        } catch (err) {
+          this.ctx.logger?.warn?.(`[wechat-bridge] ask_user_question restriction skipped: ${err.message}`);
+        }
+      }
     };
     const agentOptions = { provider: selection?.provider, model: selection?.model };
 
@@ -591,7 +619,12 @@ class WeixinBridgeService {
         agent = (await agents.resume({ resumeSessionId: sessionId, agentOptions, setup })).agent;
       } catch {
         try {
-          agent = (await agents.create({ sessionId, meta: { cwd }, agentOptions, setup })).agent;
+          agent = (await agents.create({
+            sessionId,
+            meta: { cwd, ...presetId === undefined ? {} : { agentPreset: presetId } },
+            agentOptions,
+            setup,
+          })).agent;
           created = true;
         } catch (createErr) {
           // A corrupt log blocks both resume (validation failure) and create
@@ -599,7 +632,12 @@ class WeixinBridgeService {
           // the rest of the day is usable instead of failing every message.
           if (String(createErr?.message || '').includes('already exists')) {
             if (await this._quarantineCorruptSession(sessionId)) {
-              agent = (await agents.create({ sessionId, meta: { cwd }, agentOptions, setup })).agent;
+              agent = (await agents.create({
+                sessionId,
+                meta: { cwd, ...presetId === undefined ? {} : { agentPreset: presetId } },
+                agentOptions,
+                setup,
+              })).agent;
               created = true;
             } else {
               throw createErr;
@@ -619,10 +657,12 @@ class WeixinBridgeService {
       } catch (err) {
         this.ctx.logger?.warn?.(`[wechat-bridge] title append failed for ${sessionId}: ${err.message}`);
       }
-      // Headless agents skip the GUI enter pipeline, so the user-global
-      // AGENTS.md and the skill catalog are injected here explicitly — once
-      // per day, when the day's session is created.
-      await this._injectDailyContext(agent, cwd);
+      // Bridge-created agents now mount the agent preset in setup (same as
+      // the GUI enter pipeline), so the preset's own plugins inject the
+      // user-global AGENTS.md and the skill catalog at every pre-step. The
+      // one thing no preset knows is that this session's answer channel is
+      // WeChat, not the web GUI — inject the interaction guard once per day.
+      await this._injectDailyContext(agent);
     }
     await agent.whenIdle();
     const firstSeq = agent.session.seq;
@@ -785,19 +825,23 @@ class WeixinBridgeService {
   }
 
   /**
-   * Inject the context a headless agent misses from the GUI enter pipeline:
-   * the user-global AGENTS.md (when readable) and the model-invocable skill
-   * catalog, both as queued model-facing user messages claimed at the next
-   * pre-step. Best-effort: any failure leaves the session fully functional.
+   * Inject the one piece of context the agent preset cannot supply for a
+   * WeChat session: the interaction guard. Bridge-created agents mount the
+   * agent preset in setup (same as the GUI enter pipeline), so the preset's
+   * own plugins already inject the user-global AGENTS.md and the
+   * model-invocable skill catalog at every pre-step — reinjecting them here
+   * would only duplicate the prompts. Best-effort: any failure leaves the
+   * session fully functional.
    */
-  async _injectDailyContext(agent, cwd) {
-    // 0. WeChat interaction guard: the interactive option UI is wired (same
+  async _injectDailyContext(agent) {
+    // WeChat interaction guard: the interactive option UI is wired (same
     // `userQuestions` provider as GUI sessions) but its answer channel is the
     // DSH web GUI, not WeChat — options render in the browser, the phone user
     // cannot see or click them, and the reply would never arrive unless
     // someone operates the desktop UI. Instruct the model to inline questions
     // + options as plain text instead. Injected first so it is the strongest,
-    // earliest context the model sees for this session kind.
+    // earliest context the model sees for this session kind. (`ask_user_question`
+    // is additionally denied at the tool layer in the agent setup.)
     try {
       agent.inject(createUserMessage({
         content: [{
@@ -809,70 +853,6 @@ class WeixinBridgeService {
       this.ctx.logger?.info?.('[wechat-bridge] injected WeChat interaction guard (no interactive option UI)');
     } catch (err) {
       this.ctx.logger?.warn?.(`[wechat-bridge] interaction guard injection skipped: ${err.message}`);
-    }
-
-    // 1. ~/.dsh/AGENTS.md (same system-reminder framing as dsh-agent-instructions)
-    const home = process.env.DSH_HOME || path.join(process.env.HOME, '.dsh');
-    const agentsMd = path.join(home, 'AGENTS.md');
-    try {
-      const text = await fsp.readFile(agentsMd, 'utf8');
-      const body = text.trim();
-      if (body) {
-        agent.inject(createUserMessage({
-          content: [{
-            type: 'text',
-            text: [
-              '<system-reminder>',
-              'The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.',
-              '',
-              `Instructions from: ${agentsMd}`,
-              '',
-              body,
-              '</system-reminder>',
-            ].join('\n'),
-          }],
-          source: { kind: 'plugin', plugin: 'dsh-plugin-wechat-bridge' },
-        }));
-        this.ctx.logger?.info?.(`[wechat-bridge] injected ${agentsMd}`);
-      }
-    } catch (err) {
-      this.ctx.logger?.warn?.(`[wechat-bridge] AGENTS.md injection skipped: ${err.message}`);
-    }
-
-    // 2. skill catalog (same <available_skills> framing as dsh-tool-skill)
-    try {
-      const skills = this.ctx.get('skills');
-      if (!skills?.snapshot) return;
-      const snapshot = await skills.snapshot({ cwd, scope: agent });
-      if (!snapshot?.complete) return;
-      const entries = snapshot.skills.filter(isModelInvocable).map((skill) => {
-        const desc = String(skill.description || '').replace(/\s+/g, ' ').trim();
-        const max = 500;
-        const normalized = desc.length <= max ? desc : `${desc.slice(0, max - 3)}...`;
-        return `- \`${skill.name}\`: ${normalized}`;
-      });
-      if (entries.length === 0) return;
-      agent.inject(createUserMessage({
-        content: [{
-          type: 'text',
-          text: [
-            '<system-reminder>',
-            'A skill is a reusable set of task-specific instructions. The following skills are available in this session:',
-            '',
-            '<available_skills>',
-            ...entries,
-            '</available_skills>',
-            '',
-            'If the user names a skill, or the task clearly matches a skill\'s description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill\'s instructions until it has been loaded.',
-            'A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.',
-            '</system-reminder>',
-          ].join('\n'),
-        }],
-        source: { kind: 'plugin', plugin: 'dsh-plugin-wechat-bridge' },
-      }));
-      this.ctx.logger?.info?.(`[wechat-bridge] injected skill catalog (${entries.length} skills)`);
-    } catch (err) {
-      this.ctx.logger?.warn?.(`[wechat-bridge] skill catalog injection skipped: ${err.message}`);
     }
   }
 
