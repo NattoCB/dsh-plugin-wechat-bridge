@@ -1,96 +1,49 @@
-<img src="banner.png" width="100%" alt="dsh-plugin-wechat-bridge — WeChat (ilink bot) bridge for DeepSeek Harness">
-
 # dsh-plugin-wechat-bridge
 
-> **Language**：[中文](./README.md) ｜ **English**
+<!-- Hero -->
+<div align="center">
+  <b style="font-size: 1.15em;">Put your DSH agent in WeChat: private-chat messages drive an agent session, replies stream back as plain text.</b><br /><br />
+  <a href="https://github.com/NattoCB/dsh-plugin-wechat-bridge"><img alt="License" src="https://img.shields.io/badge/License-MIT-yellow.svg" /></a>
+  <a href="https://github.com/NattoCB/dsh-plugin-wechat-bridge"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-NattoCB%2Fdsh--plugin--wechat--bridge-181717" /></a><br /><br />
+  <img alt="ilink bot" src="https://img.shields.io/badge/-ilink%20bot-4d6bfe" />
+  <img alt="Hot plug" src="https://img.shields.io/badge/-Hot%20plug-4d6bfe" />
+  <img alt="Per-day sessions" src="https://img.shields.io/badge/-Per-day%20sessions-4d6bfe" />
+  <img alt="Crash-safe" src="https://img.shields.io/badge/-Crash-safe-4d6bfe" />
+  <img alt="Outbound media" src="https://img.shields.io/badge/-Outbound%20media-4d6bfe" /><br /><br />
+  <b>Integration surface:</b> settings namespace <code>wechat-bridge</code> · slash command <code>/wechat</code> · tool <code>wechat_send_file</code> · Settings "WeChat bridge" tab
+</div>
 
-> **Put your DSH agent in your WeChat.** DSH (DeepSeek Harness) bundle plugin that bridges **WeChat (ilink bot)** private-chat
-> messages into a DSH agent session and streams the reply back as plain text — with
-> **runtime enable/disable hot-plug** (no `dsh web` restart required).
+> **Language**: [中文](./README.md) ｜ **English**
 
-> A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin:
-> install into the `web` profile, scan a QR code to bind a WeChat bot account,
-> and chat with your DSH agent from WeChat. One session per peer per day,
-> durable JSON-file state, crash-safe polling.
+> Put your DSH agent in WeChat. A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) bundle plugin:
+> it bridges **WeChat (ilink bot)** private-chat messages into a DSH agent session and streams the reply back as plain text.
+> Install into the `web` profile, scan a QR code to bind a `bot_type=3` WeChat account, and chat from WeChat directly.
+> One session per peer per day, durable JSON-file state, crash-safe polling; enable/disable live from the Settings UI tab,
+> the `/wechat` command, or `settings.yaml` — no `dsh web` restart.
 
-Ported from CodePilot's WeChat bridge subsystem (`src/lib/bridge/adapters/weixin/*`),
-self-contained for DSH (JSON-file persistence instead of SQLite, no OpenClaw runtime dep).
+## ✨ Features
 
-## Why
+- **📱 WeChat private chat → DSH agent**: polls the WeChat `ilink bot` API (`getupdates`, multi-account); private-chat messages drive an agent session, replies come back as plain-text chunks (4096 chars × max 5, truncated beyond).
+- **🔌 Runtime hot plug**: three independent controls — Settings UI tab, `/wechat` slash command, `settings.yaml` flag — start/stop take effect immediately, no process restart.
+- **🗓️ One session per peer per day**: local-midnight rotation, lazily created on the first inbound message, titled `<YYYY-MM-DD>`; a day without conversation never materializes a session, and a corrupt log can't block the next day.
+- **🛡️ Crash-safe by construction**: cross-process poll lock (`~/.dsh/wechat-bridge/poll.lock`), per-chat serialization, inbound dedupe (each `message_id` at most once), corrupt logs quarantined as `.corrupt-<ts>` and rebuilt.
+- **🚪 Inbound allowlist (fail-closed)**: empty `allowedPeers` = deny everyone; matching on the WeChat id (`from_user_id`), not the display name; comma-separated; editable in the Settings UI.
+- **📤 Outbound media**: the agent calls the `wechat_send_file` tool to upload a local image/video/file to the WeChat CDN and send it to the current peer (routed by extension, optional caption).
+- **📥 Inbound media**: images/files/videos/voice are downloaded from the CDN and AES-decrypted, parked under `WeChatSpace/inbox/<date>/` and described by path; images are attached as native image content when the selected model declares image input.
+- **🧠 GUI-equivalent context**: each day's session is created with the user-global `~/.dsh/AGENTS.md` and the available skill catalog (`<available_skills>`) injected up front, mounting the same agent preset as the GUI.
+- **🚫 Interactive option UI disabled (hang-proofing)**: `ask_user_question` and other interactive-option tools are denied in WeChat sessions — their answer channel is the DSH web GUI, unreachable from the phone; questions and options are inlined as plain text instead, and the user replies with a normal message.
+- **💾 Self-contained persistence**: accounts, `context_token`s, and poll offsets live in one atomic JSON file (`~/.dsh/wechat-bridge/state.json`); no database. Sessions live under `~/.dsh/wechat-bridge/WeChatSpace`.
+- **🔁 Automatic migration**: the legacy `weixin-bridge` data directory and settings section are renamed once to `wechat-*`; an account pauses for 60 minutes on `errcode -14` (session expired).
 
-Being able to talk to your agent only at the desk keeps you chained to the
-workstation. With this plugin, WeChat becomes your pocket terminal: scan a QR
-code once, then any private message drives the DSH agent and the reply streams
-back to your phone — the agent keeps working while you are away.
+## Quick Start
 
-## Highlights
+### Prerequisites
 
-- **Hot plug** — enable/disable live from the Settings UI tab, the `/wechat`
-  slash command, or `settings.yaml`; no process restart.
-- **One session per peer per day** — local-midnight rotation, lazily created on
-  the first message, titled `<YYYY-MM-DD>`.
-- **Crash-safe by construction** — cross-process poll lock, per-chat
-  serialization, inbound message dedupe, corrupt-log quarantine and self-heal.
-- **Self-contained** — accounts, tokens, and poll offsets persist in a single
-  atomic JSON file; no database required.
-- **Settings UI tab** — bind accounts by QR code and manage them from the
-  browser, no config editing needed.
+- DeepSeek Harness installed (`dsh web` runs).
+- A WeChat account with `ilink bot` permission (`bot_type=3`).
+- Note: the harness resolves bundle deps from the flat `~/.dsh/profiles/node_modules` fallback, so **do not** symlink the package from outside the profile tree (ESM); copy it under the profile. (A `file:` dependency + `dsh.profile.bundles` entry is the canonical registration; the copy is the booted artifact.)
 
-## What it does
-
-- Polls the WeChat `ilink bot` API (`getupdates`) per configured account (multi-account).
-- **One session per peer per calendar day (this machine's timezone).** The first inbound
-  message after local midnight lazily creates that day's session, titled
-  `<YYYY-MM-DD>`; a day with no conversation never materializes a session.
-  A corrupt log from a previous day therefore can never block today's conversation.
-- Sessions live under `~/.dsh/wechat-bridge/WeChatSpace` by default (not the process cwd).
-- Per-chat serialization: messages for the same peer are driven strictly one at a time,
-  so concurrent inbound messages cannot interleave writes into one session log.
-- **Inbound allowlist (fail-closed)**: with `allowedPeers` unset, nobody is
-  allowed in — only listed WeChat ids can drive the agent (see "Inbound
-  allowlist" below).
-- **Cross-process poll lock** (`~/.dsh/wechat-bridge/poll.lock`): only one DSH
-  process polls WeChat accounts at a time; a second process sees the live lock
-  and waits, so a launchd keep-alive instance racing a manual restart cannot
-  double-poll and interleave writes into the same session log.
-- **Inbound dedupe**: each WeChat `message_id` (fallback: server `seq`) is
-  recorded as processed before driving the agent, so a re-delivered batch
-  (crash before offset persist, or a second process) is skipped.
-- **Corrupt-log self-heal**: if a session's stored log fails both resume and
-  create ("already exists"), the artifact is quarantined as
-  `session.jsonl.zstd.corrupt-<ts>` and a fresh same-day session is created,
-  so one bad log cannot fail every message of the day.
-- Sends the agent's reply back to WeChat as plain-text chunks (4096 chars × max 5).
-- **Context injection**: the day's session is created with the user-global
-  `~/.dsh/AGENTS.md` and the available skill catalog (`<available_skills>`)
-  injected up front — the same context a GUI session receives.
-- **Interactive option UI disabled (hang-proofing)**: in a WeChat session the
-  interactive-option tool (`ask_user_question`) is wired, but its answer
-  channel is the **DSH web GUI**, not WeChat — the options render in the
-  browser, the phone user cannot see or click them, and the agent **blocks
-  forever** unless someone operates the desktop UI. A leading `system-reminder`
-  is injected into each day's session that forbids the interactive-option flow
-  and instructs the model to inline questions + options as plain text instead;
-  the user replies with a normal WeChat message and the same daily session
-  continues automatically.
-- **Inbound media**: images/files/videos/voice sent from WeChat are downloaded
-  from the CDN, AES-decrypted, parked under `WeChatSpace/inbox/<date>/`, and
-  described by path in the message; when the selected model declares image
-  input, images are also attached as native image content.
-- **Outbound media**: the agent can call the `wechat_send_file` tool to upload
-  a locally generated image/video/file to the WeChat CDN and send it to the
-  current peer (routed by extension, optional text caption).
-- Stores `context_token` per peer so it can reply after restarts (WeChat requires it).
-- Pauses an account for 60 min on `errcode -14` (session expired).
-- Migrates pre-rename state automatically: the `~/.dsh/weixin-bridge` data directory
-  and the `weixin-bridge:` settings section are renamed once to their `wechat-*` names.
-
-## Install (into the `web` profile)
-
-> Prereq: the harness resolves bundle deps from the flat `~/.dsh/profiles/node_modules`
-> fallback, so **do not** symlink the package from outside the profile tree for ESM —
-> copy it under the profile. (A `file:` dependency + `dsh.profile.bundles` entry is the
-> canonical registration; the copy is the booted artifact.)
+### Install (into the `web` profile)
 
 ```bash
 # 1. copy the plugin under the web profile's node_modules
@@ -104,31 +57,57 @@ rm -rf "$DST" && cp -R "$SRC" "$DST"
 #    dsh.profile.bundles: add "dsh-plugin-wechat-bridge"
 
 # 3. (re)start dsh web — the bundle patch mounts the `wechat-bridge` service
-#    and serves the client settings tab at /plugins/<id>/client.js.
+#    and serves the client settings tab at /plugins/<id>/client.js
 dsh web
 ```
 
-The service mounts at boot; if `settings.wechat-bridge.enabled` is true it starts polling
-immediately. Otherwise it idles until enabled (see below).
+### Bind by QR code
 
-## Settings UI tab (recommended)
+Open **Settings → "微信桥接" (WeChat bridge)** in the bottom-left of the DSH web UI → click "扫码绑定账号" (bind account) → the QR code renders inline (PNG data URL) → scan status auto-polls every 2 seconds → once confirmed in WeChat, the account is saved and the bridge enabled.
 
-Open **Settings → "微信桥接" (WeChat bridge)** in the bottom-left of the DSH web UI:
+Or use the CLI in any DSH chat: `/wechat qrlogin` starts a login (returns a `sessionId`) → `/wechat qrstatus <sessionId>` polls the status; on `confirmed` the account is saved and enabled.
 
-- **Status card**: bridge running state + enable/disable button (hot-plug, effective immediately, no restart).
-- **Default model card**: two dropdowns pick the provider/model used by bridged
-  sessions (options come from DSH's registered models, no free-text input);
-  leave empty to follow the global default, saved to settings.yaml.
-- **Accounts card**: bound account list (account id, token status, last login time) + remove button.
-- **QR bind**: click "扫码绑定账号" (bind account) → a QR code renders inline (PNG data URL) →
-  scan status auto-polls every 2 seconds → once confirmed in WeChat, the account is saved and the bridge enabled.
+### Run
 
-## Runtime enable / disable (hot-plug)
+Message the bot ("what's on today") — the agent answers as if you were in the GUI, and the reply comes back as plain text. The service mounts at boot; if `settings.wechat-bridge.enabled` is true it starts polling immediately, otherwise it idles until enabled.
 
-Three independent controls, all live without restart:
+## Configuration
 
-1. **Settings UI tab** (above).
+### Options
 
+| key | default | meaning |
+|:----|:--------|:--------|
+| `enabled` | `false` | boot-time autostart when the settings flag is absent; re-applied live on every change |
+| `mediaEnabled` | `true` | accept inbound media (download / decrypt / park) |
+| `defaultProvider` | `''` | provider override for bridged sessions (empty = follow global default; editable in the Settings tab) |
+| `defaultModel` | `''` | model override for bridged sessions (empty = follow global default; editable in the Settings tab) |
+| `allowedPeers` | `''` | inbound allowlist: WeChat ids (`from_user_id`) allowed to drive the agent, comma-separated; empty = deny everyone (fail-closed) |
+| `dataDir` | `~/.dsh/wechat-bridge` | where `state.json` (accounts / tokens / offsets) lives |
+| `defaultCwd` | `''` | working dir for new sessions (else `~/.dsh/wechat-bridge/WeChatSpace`) |
+
+`enabled`, `mediaEnabled`, `defaultProvider`, `defaultModel` and `allowedPeers` also live in the `wechat-bridge:` section of `~/.dsh/settings.yaml`; editing and saving re-applies them live:
+
+```yaml
+wechat-bridge:
+  enabled: true        # live toggle; the service re-applies on every change
+  mediaEnabled: true
+  defaultProvider: ''  # bridged-session provider (empty = follow global default)
+  defaultModel: ''     # bridged-session model (empty = follow global default)
+  allowedPeers: 'wxid_abc123, wxid_def456'  # inbound allowlist, comma-separated
+```
+
+### Inbound allowlist (fail-closed)
+
+`allowedPeers` is a **deny-by-default** inbound gate: only the WeChat ids listed may drive an agent session.
+
+- **Empty means nobody** (the safe default, not everyone) — messages from non-listed ids are ignored, and the sender gets a hint carrying their WeChat id so the operator can enroll themselves in the Settings tab.
+- Matching is on the **WeChat id** (`from_user_id`), not the display name — names change, ids are stable.
+- Multiple ids are comma-separated, e.g. `wxid_abc123, wxid_def456`.
+- Hot-reloaded, no restart; also editable directly in the Settings UI tab.
+
+### Runtime enable / disable (hot plug)
+
+1. **Settings UI tab**: status card (running state + enable/disable button, effective immediately), default-model card (two dropdowns pick provider/model from DSH's registered models), accounts card (account id, token status, last login time + remove), QR bind.
 2. **Slash command** (in any DSH chat):
    - `/wechat status` — running? account count?
    - `/wechat enable` — start the poll loop now (also writes `settings.wechat-bridge.enabled=true`)
@@ -137,53 +116,24 @@ Three independent controls, all live without restart:
    - `/wechat qrlogin` — start a QR login; returns a `sessionId`
    - `/wechat qrstatus <sessionId>` — poll scan status; on `confirmed` saves the account and enables
    - `/wechat rm <accountId>` — remove an account
+3. **Settings flag** (hot-reloaded): edit `wechat-bridge.enabled` in `~/.dsh/settings.yaml`; saving re-reads the flag and starts/stops the loop.
 
-3. **Settings flag** (hot-reloaded): edit `~/.dsh/settings.yaml`:
-   ```yaml
-   wechat-bridge:
-     enabled: true        # live toggle; the service re-applies on every change
-     mediaEnabled: true
-     defaultProvider: '' # bridged-session provider (empty = follow global default)
-     defaultModel: ''     # bridged-session model (empty = follow global default)
-     allowedPeers: ''     # inbound allowlist: WeChat ids (from_user_id) allowed to drive the agent, comma-separated
-   ```
-   Changing `enabled` and saving re-reads the flag and starts/stops the loop.
+The UI tab calls the plugin's own HTTP API (`/wechat-bridge/*`) served by the host webserver — no external service involved.
 
-### Inbound allowlist (fail-closed)
+### Session model
 
-`allowedPeers` is a **deny-by-default** inbound gate: only the WeChat ids listed
-may drive an agent session. **Empty means nobody** (the safe default, not
-everyone) — messages from non-listed ids are ignored, and the sender gets a
-hint carrying their WeChat id so the operator can enroll themselves in the
-Settings tab.
+- Session id: `wechat-<chatId>-<YYYY-MM-DD>` (local machine timezone, e.g. `2026-08-15`); created lazily on the first inbound message of the day, never pre-created at midnight.
+- Title: `<YYYY-MM-DD>`, pinned with the `user` title source so automatic title generation never overwrites it.
+- Default cwd: `~/.dsh/wechat-bridge/WeChatSpace` (created on boot; override with `defaultCwd`).
+- Peer identity stays encoded as `weixin::<accountId>::<peerUserId>` (protocol layer, shared with the CodePilot lineage); only the plugin's own naming uses `wechat-*`.
 
-- Matching is on the **WeChat id** (`from_user_id`), not the display name —
-  names change, ids are stable.
-- Multiple ids are comma-separated, e.g. `wxid_abc123, wxid_def456`.
-- Hot-reloaded, no restart; also editable directly in the Settings UI tab.
-
-The UI tab calls the plugin's own HTTP API (`/wechat-bridge/*`) served by the host
-webserver — no external service involved.
-
-## Configuration (plugin `config` in cordis.patch.yml)
-
-| key | default | meaning |
-|---|---|---|
-| `enabled` | `false` | boot-time autostart if settings flag absent |
-| `mediaEnabled` | `true` | (reserved) attach inbound media |
-| `dataDir` | `~/.dsh/wechat-bridge` | where `state.json` (accounts/tokens/offsets) lives |
-| `defaultModel` | `''` | override model for bridged sessions (else global default; selectable in the settings tab) |
-| `defaultProvider` | `''` | override provider for bridged sessions (else global default; selectable in the settings tab) |
-| `defaultCwd` | `''` | working dir for new sessions (else `~/.dsh/wechat-bridge/WeChatSpace`) |
-
-## Files
+### Files
 
 ```
-src/index.js        WechatBridgeService: poll loop, agent-driving, per-day sessions,
-                    hot-plug, /wechat command, + /wechat-bridge/* HTTP API for the
-                    settings tab (QR rendered server-side)
-client/client.js    Client bundle: registers the Settings「微信桥接」section slot (React)
+src/index.js        WechatBridgeService: poll loop, agent-driving, per-day sessions, hot-plug, /wechat command, /wechat-bridge/* HTTP API (QR rendered server-side)
+client/client.js    Client bundle: registers the Settings "微信桥接" section slot (React)
 src/weixin-api.js   ilink bot protocol client (getupdates/sendmessage/sendtyping/getconfig/qrlogin)
+src/weixin-media.js inbound media CDN download + AES decrypt, outbound media CDN upload
 src/weixin-ids.js   synthetic chatId encode/decode (weixin::<accountId>::<peerUserId>)
 src/weixin-types.js protocol enums/constants
 src/store.js        JSON-file persistence (accounts, context_tokens, offsets; legacy-dir migration)
@@ -192,28 +142,18 @@ package.json        declares dsh.bundle + dsh.client (web)
 node_modules/       vendored qrcode/pngjs/dijkstrajs (QR data-URL rendering, no pnpm needed)
 ```
 
-## Session model
+### Notes / scope
 
-- Session id: `wechat-<chatId>-<YYYY-MM-DD>` (local machine timezone, e.g. `2026-08-15`).
-- Created lazily on the first inbound message of the day; never pre-created at midnight.
-- Title: `<YYYY-MM-DD>`, pinned with the `user` title source so automatic
-  title generation never overwrites it.
-- Default cwd: `~/.dsh/wechat-bridge/WeChatSpace` (created on boot; override with `defaultCwd`).
-- Peer identity stays encoded as `weixin::<accountId>::<peerUserId>` (protocol layer,
-  shared with CodePilot lineage); only the plugin's own naming uses `wechat-*`.
-
-## Notes / scope
-
-- Outbound media is agent-initiated via the `wechat_send_file` tool; inbound
-  voice is parked on disk only (no transcription).
+- Outbound media is agent-initiated via the `wechat_send_file` tool; inbound voice is parked on disk only (no transcription).
 - Private chat only; no group semantics.
 - Requires a WeChat account with `ilink bot` permission (`bot_type=3`).
 - Persistence is a single atomic JSON file (`state.json`) — sufficient for one DSH process.
-- The per-chat queue serializes within one process; the cross-process poll lock and
-  message dedupe cover the multi-process case (keep the port single-owned anyway).
+- The per-chat queue serializes within one process; the cross-process poll lock and message dedupe cover the multi-process case (keep the port single-owned anyway).
 
 ---
 
-**Try it:** install into the web profile, scan a QR code to bind a
-`bot_type=3` WeChat account, then message the bot "what's on today" — the agent
-answers as if you were in the GUI. Issues or ideas? [Open an issue](https://github.com/NattoCB/dsh-plugin-wechat-bridge/issues).
+<div align="center">
+
+[MIT License](https://github.com/NattoCB/dsh-plugin-wechat-bridge) · [GitHub repo](https://github.com/NattoCB/dsh-plugin-wechat-bridge) · [Open an issue](https://github.com/NattoCB/dsh-plugin-wechat-bridge/issues)
+
+</div>
