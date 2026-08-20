@@ -133,10 +133,17 @@ export async function uploadMediaToCdn(creds, getUploadUrl, data, toUserId, medi
     aeskey: aeskey.toString('hex'),
   });
   const uploadParam = resp.upload_param;
-  if (!uploadParam) throw new Error('getuploadurl returned no upload_param');
+  if (!uploadParam && !resp.upload_full_url) {
+    throw new Error('getuploadurl returned no upload_param nor upload_full_url');
+  }
 
   const cdnBaseUrl = creds.cdnBaseUrl || DEFAULT_CDN_BASE_URL;
-  const uploadUrl = `${cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`;
+  // The server may hand back a complete upload URL (`upload_full_url`) or a
+  // bare `upload_param`; both carry the same encrypted upload ticket. Keep
+  // the filekey query arg that the classic upload URL carries either way.
+  const uploadUrl = resp.upload_full_url
+    ? `${resp.upload_full_url}${resp.upload_full_url.includes('?') ? '&' : '?'}filekey=${encodeURIComponent(filekey)}`
+    : `${cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`;
   const ciphertext = encryptAesEcb(data, aeskey);
 
   let downloadParam;
