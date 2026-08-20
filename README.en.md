@@ -46,6 +46,9 @@ back to your phone — the agent keeps working while you are away.
 - Sessions live under `~/.dsh/wechat-bridge/WeChatSpace` by default (not the process cwd).
 - Per-chat serialization: messages for the same peer are driven strictly one at a time,
   so concurrent inbound messages cannot interleave writes into one session log.
+- **Inbound allowlist (fail-closed)**: with `allowedPeers` unset, nobody is
+  allowed in — only listed WeChat ids can drive the agent (see "Inbound
+  allowlist" below).
 - **Cross-process poll lock** (`~/.dsh/wechat-bridge/poll.lock`): only one DSH
   process polls WeChat accounts at a time; a second process sees the live lock
   and waits, so a launchd keep-alive instance racing a manual restart cannot
@@ -142,8 +145,22 @@ Three independent controls, all live without restart:
      mediaEnabled: true
      defaultProvider: '' # bridged-session provider (empty = follow global default)
      defaultModel: ''     # bridged-session model (empty = follow global default)
+     allowedPeers: ''     # inbound allowlist: WeChat ids (from_user_id) allowed to drive the agent, comma-separated
    ```
    Changing `enabled` and saving re-reads the flag and starts/stops the loop.
+
+### Inbound allowlist (fail-closed)
+
+`allowedPeers` is a **deny-by-default** inbound gate: only the WeChat ids listed
+may drive an agent session. **Empty means nobody** (the safe default, not
+everyone) — messages from non-listed ids are ignored, and the sender gets a
+hint carrying their WeChat id so the operator can enroll themselves in the
+Settings tab.
+
+- Matching is on the **WeChat id** (`from_user_id`), not the display name —
+  names change, ids are stable.
+- Multiple ids are comma-separated, e.g. `wxid_abc123, wxid_def456`.
+- Hot-reloaded, no restart; also editable directly in the Settings UI tab.
 
 The UI tab calls the plugin's own HTTP API (`/wechat-bridge/*`) served by the host
 webserver — no external service involved.

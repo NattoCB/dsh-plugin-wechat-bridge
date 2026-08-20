@@ -46,6 +46,10 @@ const SETTINGS_SCHEMA = z.object({
   mediaEnabled: z.boolean().default(true),
   defaultProvider: z.string().default(''),
   defaultModel: z.string().default(''),
+  // Fail-closed inbound allowlist: comma-separated WeChat ids (from_user_id).
+  // An unset/blank value means NOBODY may drive the agent. Plain string on
+  // purpose so the Settings UI renders it as a regular text field.
+  allowedPeers: z.string().default(''),
 });
 
 /**
@@ -170,12 +174,14 @@ class WeixinBridgeService {
       mediaEnabled: this.config.mediaEnabled,
       defaultProvider: this.config.defaultProvider || '',
       defaultModel: this.config.defaultModel || '',
+      allowedPeers: this.config.allowedPeers || '',
     });
     installSettingsSection(ctx, SETTINGS_NS, SETTINGS_SCHEMA, {
       enabled: this.config.enabled,
       mediaEnabled: this.config.mediaEnabled,
       defaultProvider: this.config.defaultProvider || '',
       defaultModel: this.config.defaultModel || '',
+      allowedPeers: this.config.allowedPeers || '',
     }, {
       setSource: (current) => { this._settingsSource = current; },
       onChange: () => this._applySettings(),
@@ -205,6 +211,16 @@ class WeixinBridgeService {
   _applySettings() {
     const s = this._settingsSource();
     this.setEnabled(!!s?.enabled);
+  }
+
+  /**
+   * Parsed inbound peer allowlist from settings: comma-separated WeChat ids
+   * (from_user_id). An empty result (unset or blank) means deny everyone —
+   * the fail-closed default.
+   */
+  _allowedPeers() {
+    const raw = this._settingsSource()?.allowedPeers || '';
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   /**
@@ -394,6 +410,25 @@ class WeixinBridgeService {
     const accountId = account.account_id;
     const peer = msg.from_user_id;
     const chatId = encodeWeixinChatId(accountId, peer);
+
+    // Fail-closed peer allowlist (settings `allowedPeers`, comma-separated
+    // WeChat ids). An unset/blank list means NOBODY may drive the agent —
+    // deny everyone by default. Rejection happens before dedupe/storage so
+    // unknown peers never touch the session store; a one-line hint tells the
+    // operator the peer id so they can self-enroll in Settings.
+    if (!this._allowedPeers().includes(peer)) {
+      this.ctx.logger?.info?.(`[wechat-bridge] rejecting non-allowlisted peer ${peer}`);
+      try {
+        const contextToken = msg.context_token || this.store.getContextToken(accountId, peer);
+        if (contextToken) {
+          await sendTextMessage(creds, peer,
+            `当前微信 ID: ${peer}\n该 ID 未加入白名单,本次消息已忽略。\n` +
+            `如需放行,请在 DSH 设置 → wechat-bridge → allowedPeers 填入此 ID(多个 ID 用英文逗号分隔)。`,
+            contextToken);
+        }
+      } catch { /* hint delivery is best-effort */ }
+      return;
+    }
 
     // Dedupe: the WeChat long-poll can re-deliver a batch when the process
     // dies before the offset is persisted, and a second DSH process polls the

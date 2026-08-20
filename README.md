@@ -34,6 +34,8 @@
   标题为 `<YYYY-MM-DD>`;当天没有对话就不会产生会话文件。因此某天日志损坏
   永远不会阻塞第二天的对话。
 - 会话默认存放在 `~/.dsh/wechat-bridge/WeChatSpace`(而非进程 cwd)。
+- **入站白名单(fail-closed)**:`allowedPeers` 未配置时拒绝所有人,只有列表内的
+  微信 ID 能驱动 agent(详见下方「入站白名单」)。
 - 按聊天串行:同一联系人的消息严格逐条驱动,并发入站消息不会交错写进同一个会话日志。
 - **跨进程轮询锁**(`~/.dsh/wechat-bridge/poll.lock`):同一时刻只有一个 DSH 进程轮询
   微信账号;第二个进程看到存活锁会等待,避免 launchd keep-alive 实例与手动重启
@@ -121,8 +123,19 @@ dsh web
      mediaEnabled: true
      defaultProvider: '' # 桥接会话 provider(空 = 跟随全局默认)
      defaultModel: ''     # 桥接会话 model(空 = 跟随全局默认)
+     allowedPeers: ''     # 入站白名单:允许驱动 agent 的微信 ID(来自 from_user_id),逗号分隔
    ```
    修改 `enabled` 保存后即重新读取并启停轮询循环。
+
+### 入站白名单(fail-closed)
+
+`allowedPeers` 是**默认拒绝**的入站闸门:只有列表内的微信 ID 能驱动 agent 会话。
+**留空 = 拒绝所有人**(安全默认,而非放行所有人)——未入列的 ID 发来消息会被忽略,
+并收到一条含其微信 ID 的提示,便于你在 Settings 页签里把自己加进去。
+
+- 匹配对象是**微信 ID**(`from_user_id`),不是昵称——昵称会变,ID 稳定。
+- 多个 ID 用英文逗号分隔,如 `wxid_abc123, wxid_def456`。
+- 配置热生效,无需重启;也可以在 Settings UI 页签直接编辑。
 
 UI 页签调用插件自带的 HTTP API(`/wechat-bridge/*`),由宿主 webserver 提供——
 不依赖任何外部服务。
