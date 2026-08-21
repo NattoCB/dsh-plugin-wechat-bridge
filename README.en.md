@@ -10,6 +10,7 @@
   <img alt="Per-day sessions" src="https://img.shields.io/badge/-Per-day%20sessions-4d6bfe" />
   <img alt="Crash-safe" src="https://img.shields.io/badge/-Crash-safe-4d6bfe" />
   <img alt="Outbound media" src="https://img.shields.io/badge/-Outbound%20media-4d6bfe" /><br /><br />
+  <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="awesome · DSH plugin" /></a><br /><br />
   <b>Integration surface:</b> settings namespace <code>wechat-bridge</code> · slash command <code>/wechat</code> · tool <code>wechat_send_file</code> · Settings "WeChat bridge" tab
 </div>
 

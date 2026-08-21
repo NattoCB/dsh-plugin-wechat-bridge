@@ -10,6 +10,7 @@
   <img alt="每人每天一个会话" src="https://img.shields.io/badge/-每人每天一个会话-4d6bfe" />
   <img alt="崩溃安全" src="https://img.shields.io/badge/-崩溃安全-4d6bfe" />
   <img alt="出站媒体" src="https://img.shields.io/badge/-出站媒体-4d6bfe" /><br /><br />
+  <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="awesome · DSH 插件" /></a><br /><br />
   <b>集成面:</b>设置命名空间 <code>wechat-bridge</code> · 斜杠命令 <code>/wechat</code> · 工具 <code>wechat_send_file</code> · Settings「微信桥接」页签
 </div>
 
