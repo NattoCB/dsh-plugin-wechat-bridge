@@ -88,7 +88,7 @@ dsh web
 |:----|:--------|:------|
 | `enabled` | `false` | 设置项缺失时的开机自启开关;每次变更实时重新应用 |
 | `mediaEnabled` | `true` | 接收入站媒体(下载 / 解密 / 落盘) |
-| `defaultProvider` | `''` | 桥接会话的 provider 覆盖(空 = 跟随全局默认;Settings UI 可编辑) |
+| `defaultProvider` | `''` | 桥接会话的 provider 覆盖(空 = 跟随全局默认;Settings UI 可编辑)。**每条微信消息都会重新强制此选择**——在会话里手动切换模型不影响微信回复 |
 | `defaultModel` | `''` | 桥接会话的 model 覆盖(空 = 跟随全局默认;Settings UI 可编辑) |
 | `allowedPeers` | `''` | 入站白名单:允许驱动 agent 的机器人内部联系人 ID(非微信号/昵称),逗号分隔;留空 = 拒绝所有人(fail-closed);Settings 页签可编辑 |
 | `notifyEnabled` | `true` | 单向会话通知开关:任何顶层 DSH 会话的 turn 结束时向白名单微信推送固定模板简讯;Settings 页签可开关 |
@@ -133,7 +133,7 @@ wechat-bridge:
 
 ### 运行时启停(热插拔)
 
-1. **Settings UI 页签**:状态卡(运行状态 + 启用/停用按钮,点击立即生效)、会话通知卡(单向通知开关,默认开启)、入站白名单卡(直接编辑 + 已对话过的 ID chips + 获取 ID 提示)、默认模型卡(两个下拉框选择 provider/model,选项来自 DSH 已注册模型)、账号卡(账号 id、token 状态、最近登录时间 + 移除)、扫码绑定。
+1. **Settings UI 页签**:状态卡(运行状态 + 启用/停用按钮,点击立即生效)、会话通知卡(单向通知开关,默认开启)、入站白名单卡(直接编辑 + 已对话过的 ID chips + 获取 ID 提示)、默认模型卡(两个下拉框选择 provider/model,选项来自 DSH 已注册模型;卡片提示「每条消息都强制此模型,会话内切换不生效」)、账号卡(账号 id、token 状态、最近登录时间 + 移除)、扫码绑定。
 2. **斜杠命令**(任意 DSH 会话):
    - `/wechat status` — 运行中?账号数?通知开关?
    - `/wechat enable` — 立即启动轮询循环(同时写入 `settings.wechat-bridge.enabled=true`)

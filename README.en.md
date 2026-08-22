@@ -89,7 +89,7 @@ Message the bot ("what's on today") — the agent answers as if you were in the 
 |:----|:--------|:--------|
 | `enabled` | `false` | boot-time autostart when the settings flag is absent; re-applied live on every change |
 | `mediaEnabled` | `true` | accept inbound media (download / decrypt / park) |
-| `defaultProvider` | `''` | provider override for bridged sessions (empty = follow global default; editable in the Settings tab) |
+| `defaultProvider` | `''` | provider override for bridged sessions (empty = follow global default; editable in the Settings tab). **Re-pinned on every WeChat message** — switching models inside the session does not affect WeChat replies |
 | `defaultModel` | `''` | model override for bridged sessions (empty = follow global default; editable in the Settings tab) |
 | `allowedPeers` | `''` | inbound allowlist: internal bot peer ids allowed to drive the agent (NOT WeChat aliases), comma-separated; empty = deny everyone (fail-closed); editable in the Settings tab |
 | `notifyEnabled` | `true` | one-way session notifications: every top-level DSH session's turn end pushes a fixed-template digest to the allowlisted WeChat peers; toggle in the Settings tab |
@@ -134,7 +134,7 @@ When enabled, the end of EVERY top-level DSH session's turn (GUI sessions, autom
 
 ### Runtime enable / disable (hot plug)
 
-1. **Settings UI tab**: status card (running state + enable/disable button, effective immediately), session-notifications card (one-way notify toggle, on by default), allowlist card (direct editing + seen-in-conversation id chips + how-to-get-an-id hint), default-model card (two dropdowns pick provider/model from DSH's registered models), accounts card (account id, token status, last login time + remove), QR bind.
+1. **Settings UI tab**: status card (running state + enable/disable button, effective immediately), session-notifications card (one-way notify toggle, on by default), allowlist card (direct editing + seen-in-conversation id chips + how-to-get-an-id hint), default-model card (hints that every WeChat message re-pins this model, so in-session switches don't apply) (two dropdowns pick provider/model from DSH's registered models), accounts card (account id, token status, last login time + remove), QR bind.
 2. **Slash command** (in any DSH chat):
    - `/wechat status` — running? account count? notification flag?
    - `/wechat enable` — start the poll loop now (also writes `settings.wechat-bridge.enabled=true`)

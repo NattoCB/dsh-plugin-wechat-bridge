@@ -222,6 +222,7 @@ window.__ModuleLoader__.load({
 						}),
 					] }),
 					jsx("div", { className: "wxb_value", children: "微信会话使用的模型；留空则跟随 DSH 全局默认。选择持久化到 settings.yaml。" }),
+					jsx("div", { className: "wxb_value", children: "注意：每条微信消息都会强制使用这里的模型——在会话里手动切换模型不会影响微信回复，改这里（或全局默认）才生效。" }),
 				] }),
 				jsxs("div", { className: "wxb_card", children: [
 					jsx("h3", { children: "已绑定账号" }),

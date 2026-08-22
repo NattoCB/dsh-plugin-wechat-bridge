@@ -87,6 +87,22 @@ export function turnEndFallbackText(reason) {
 }
 
 /**
+ * WeChat-facing text for a drive whose final turn ended in an error and
+ * produced no assistant message — the actual failure (e.g. the upstream
+ * auth error) instead of a generic "(空回复)". `selection` names the
+ * provider/model that was pinned for the call so the operator can tell
+ * WHICH route failed. Truncated to one WeChat chunk.
+ */
+export function formatTurnErrorReply(reason, selection) {
+  const rawError = reason?.error;
+  const detail = flattenText(String(rawError?.message || (typeof rawError === 'string' ? rawError : '') || '未知错误')).slice(0, RESPONSE_PREFIX_LIMIT);
+  const provider = selection?.provider || '';
+  const model = selection?.model || '';
+  const label = [provider, model].filter(Boolean).join('/');
+  return `⚠️ 模型调用失败${label ? `（${label}）` : ''}：${detail}`.slice(0, 4000);
+}
+
+/**
  * Session display name for the notification header: the latest logged
  * `session/title`, else the first real user prompt (source.kind === "user"),
  * else a fixed fallback. Mirrors how dsh-session-title folds titles.

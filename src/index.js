@@ -39,7 +39,7 @@ import {
 import { encodeWeixinChatId, decodeWeixinChatId } from './weixin-ids.js';
 import { ERRCODE_SESSION_EXPIRED } from './weixin-types.js';
 import { downloadMediaFromItem, uploadMediaToCdn } from './weixin-media.js';
-import { formatTurnNotification, shouldNotifySession, stripMarkup } from './notify.js';
+import { formatTurnErrorReply, formatTurnNotification, shouldNotifySession, stripMarkup } from './notify.js';
 import { installModelSelection } from '@deepseek-ai/dsh-agent';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -810,14 +810,23 @@ class WeixinBridgeService {
     await agent.whenIdle();
     await sessions.flush(agent.session);
 
+    // Reply extraction: the last non-empty assistant text of the drive
+    // window, plus the final turn's end reason. A model-call failure (e.g.
+    // upstream 401) ends the turn with reason.kind === 'error' and produces
+    // no assistant message at all — surface THAT instead of a generic
+    // "(空回复)" so the phone peer sees the real cause.
     let out = '';
+    let lastReason;
     for (const ev of agent.session.events) {
       if (ev.seq < firstSeq) continue;
       if (ev.type === 'assistant/message') {
         const joined = ev.data?.message?.content?.filter((b) => b.type === 'text').map((b) => b.text).join('') || '';
         if (joined) out = joined;
+      } else if (ev.type === 'turn/end') {
+        lastReason = ev.data?.reason;
       }
     }
+    if (!out && lastReason?.kind === 'error') return formatTurnErrorReply(lastReason, selection);
     return out || '(空回复)';
   }
 

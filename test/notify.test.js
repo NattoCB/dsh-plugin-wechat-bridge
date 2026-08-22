@@ -12,6 +12,7 @@ import {
 	shouldNotifySession,
 	formatTurnNotification,
 	stripMarkup,
+	formatTurnErrorReply,
 } from "../src/notify.js";
 
 // ── fixtures ─────────────────────────────────────────────────────────────
@@ -190,4 +191,30 @@ test("formatTurnNotification uses fixed fallbacks for response-less turns", () =
 test("name/response limits match the spec constants", () => {
 	assert.equal(NAME_PREFIX_LIMIT, 15);
 	assert.equal(RESPONSE_PREFIX_LIMIT, 200);
+});
+
+test("formatTurnErrorReply surfaces the upstream error with the pinned route", () => {
+	const out = formatTurnErrorReply(
+		{ kind: "error", error: { message: "Authentication Fails, Your api key: ****669f is invalid", code: "AUTH" } },
+		{ provider: "deepseek-official", model: "deepseek-v4-flash" },
+	);
+	assert.equal(out, "⚠️ 模型调用失败（deepseek-official/deepseek-v4-flash）：Authentication Fails, Your api key: ****669f is invalid");
+});
+
+test("formatTurnErrorReply tolerates missing selection and empty message", () => {
+	assert.equal(formatTurnErrorReply({ kind: "error", error: {} }, undefined), "⚠️ 模型调用失败：未知错误");
+	assert.equal(
+		formatTurnErrorReply({ kind: "error", error: { message: "boom" } }, { provider: "openrouter" }),
+		"⚠️ 模型调用失败（openrouter）：boom",
+	);
+	assert.equal(
+		formatTurnErrorReply({ kind: "error", error: { message: "boom" } }, { provider: "", model: "" }),
+		"⚠️ 模型调用失败：boom",
+	);
+});
+
+test("formatTurnErrorReply flattens newlines and truncates to one chunk", () => {
+	const out = formatTurnErrorReply({ kind: "error", error: { message: "a\nb".repeat(3000) } }, { provider: "p", model: "m" });
+	assert.ok(!out.includes("\n"));
+	assert.ok(out.length <= 4000);
 });

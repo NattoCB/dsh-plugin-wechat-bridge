@@ -4,6 +4,18 @@ All notable changes to this plugin are documented in this file.
 
 ## [Unreleased]
 
+- Surface real model-call failures to WeChat instead of a generic
+  「(空回复)」: when the driven turn ends with reason.kind === 'error' and
+  produced no assistant text, the bridge now replies
+  「⚠️ 模型调用失败（provider/model）：<上游错误原文>」
+  (new pure helper `formatTurnErrorReply`, +3 tests).
+- 默认模型 card + docs now state explicitly that the pinned
+  defaultProvider/defaultModel is re-installed on EVERY inbound message —
+  switching models inside a WeChat session from the web GUI does not affect
+  WeChat replies (this caused the confusing "switched to openrouter but
+  still API key invalid" case: the calls were still going out on the old
+  pinned provider with its dead key).
+
 - Settings-tab allowlist editor (「入站白名单」card): edit `allowedPeers`
   directly (normalized comma-separated), persisted via
   POST /wechat-bridge/config → settings.yaml. Shows clickable
