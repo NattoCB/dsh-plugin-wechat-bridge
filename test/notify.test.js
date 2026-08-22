@@ -13,6 +13,7 @@ import {
 	formatTurnNotification,
 	stripMarkup,
 	formatTurnErrorReply,
+	sessionIdBadge,
 } from "../src/notify.js";
 
 // ── fixtures ─────────────────────────────────────────────────────────────
@@ -153,7 +154,7 @@ test("formatTurnNotification renders the exact two-line template", () => {
 		reason: { kind: "completed" },
 		sessionId: "session-abcdef12-3456",
 	});
-	assert.equal(out, "【会话通知：我的会话（sessio）】\n这是最终回复内容");
+	assert.equal(out, "【会话通知：我的会话（abcdef）】\n这是最终回复内容");
 });
 
 test("formatTurnNotification truncates long names and responses with ...", () => {
@@ -217,4 +218,13 @@ test("formatTurnErrorReply flattens newlines and truncates to one chunk", () => 
 	const out = formatTurnErrorReply({ kind: "error", error: { message: "a\nb".repeat(3000) } }, { provider: "p", model: "m" });
 	assert.ok(!out.includes("\n"));
 	assert.ok(out.length <= 4000);
+});
+test("sessionIdBadge strips the constant session-/wechat- prefix", () => {
+	assert.equal(sessionIdBadge("session-abcdef12-3456"), "abcdef");
+	assert.equal(sessionIdBadge("wechat-weixin~003A-2026-08-22"), "weixin");
+	assert.equal(sessionIdBadge("0652274d-ca45-4932"), "065227"); // bare UUID unchanged
+	assert.equal(sessionIdBadge("Session_ABCDEF"), "ABCDEF"); // case-insensitive strip
+	assert.equal(sessionIdBadge("session-"), "session-"); // nothing left -> raw fallback
+	assert.equal(sessionIdBadge(""), "");
+	assert.equal(sessionIdBadge(undefined), "");
 });

@@ -29,7 +29,7 @@
 - **🗓️ One session per peer per day**: local-midnight rotation, lazily created on the first inbound message, titled `<YYYY-MM-DD>`; a day without conversation never materializes a session, and a corrupt log can't block the next day.
 - **🛡️ Crash-safe by construction**: cross-process poll lock (`~/.dsh/wechat-bridge/poll.lock`), per-chat serialization, inbound dedupe (each `message_id` at most once), corrupt logs quarantined as `.corrupt-<ts>` and rebuilt.
 - **🚪 Inbound allowlist (fail-closed)**: empty `allowedPeers` = deny everyone; matching on the bot's internal peer id — an opaque string that is **not** the WeChat alias/nickname; comma-separated; editable in the Settings tab's allowlist card, with one-click chips for ids seen in conversation.
-- **📣 One-way session notifications (on by default)**: the end of EVERY top-level DSH session's turn pushes a fixed-template digest to the allowlisted WeChat peers (session name ≤15 chars + first 6 chars of the session id, then the turn response ≤200 chars — no LLM summarization). Strictly outbound: sent straight through the WeChat API, never written into any session, so the daily bridge conversation and the notifications cannot pollute each other.
+- **📣 One-way session notifications (on by default)**: the end of EVERY top-level DSH session's turn pushes a fixed-template digest to the allowlisted WeChat peers (session name ≤15 chars + a 6-char distinctive id badge — constant prefixes like `session-` are stripped so you never see a meaningless "sessio"; then the turn response ≤200 chars — no LLM summarization). Strictly outbound: sent straight through the WeChat API, never written into any session, so the daily bridge conversation and the notifications cannot pollute each other.
 - **📤 Outbound media**: the agent calls the `wechat_send_file` tool to upload a local image/video/file to the WeChat CDN and send it to the current peer (routed by extension, optional caption).
 - **📥 Inbound media**: images/files/videos/voice are downloaded from the CDN and AES-decrypted, parked under `WeChatSpace/inbox/<date>/` and described by path; images are attached as native image content when the selected model declares image input.
 - **🧠 GUI-equivalent context**: each day's session is created with the user-global `~/.dsh/AGENTS.md` and the available skill catalog (`<available_skills>`) injected up front, mounting the same agent preset as the GUI.
@@ -123,7 +123,7 @@ wechat-bridge:
 When enabled, the end of EVERY top-level DSH session's turn (GUI sessions, automation sessions, ...) pushes a fixed-template digest to the `allowedPeers` WeChat peers — pure template concatenation, no LLM in the loop:
 
 ```
-【会话通知:<first 15 chars of session name, ellipsized...>(first 6 chars of session id)】
+【会话通知:<first 15 chars of session name, ellipsized...>(distinctive id badge, e.g. abcdef)】
 <first 200 chars of the turn's final response, ellipsized...>
 ```
 

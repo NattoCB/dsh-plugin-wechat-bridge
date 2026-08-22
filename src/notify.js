@@ -145,6 +145,20 @@ export function shouldNotifySession(sessionId, header) {
 }
 
 /**
+ * Short disambiguating badge for a session id. Naively slicing the first
+ * chars of ids like `session-abcdef12-…` renders the constant prefix
+ * ("sessio") which carries zero information; strip a known `session-` /
+ * `wechat-` prefix first so the badge shows the distinctive part.
+ */
+export function sessionIdBadge(sessionId, limit = SESSION_ID_PREFIX_CHARS) {
+  const raw = String(sessionId || '');
+  if (!raw) return '';
+  const stripped = raw.replace(/^(session|wechat)[-_]/i, '');
+  if (!stripped) return raw;
+  return stripped.slice(0, limit);
+}
+
+/**
  * Build the complete two-line notification text for one finished turn.
  * Pure: takes everything it needs as arguments.
  */
@@ -152,6 +166,6 @@ export function formatTurnNotification({ events, turn, reason, sessionId }) {
   const raw = extractTurnResponse(events, turn) || turnEndFallbackText(reason);
   const response = stripMarkup(raw);
   const name = stripMarkup(deriveSessionName(events));
-  const header = `【会话通知：${prefixWithEllipsis(name, NAME_PREFIX_LIMIT)}（${String(sessionId || '').slice(0, SESSION_ID_PREFIX_CHARS)}）】`;
+  const header = `【会话通知：${prefixWithEllipsis(name, NAME_PREFIX_LIMIT)}（${sessionIdBadge(sessionId)}）】`;
   return `${header}\n${prefixWithEllipsis(response, RESPONSE_PREFIX_LIMIT)}`;
 }

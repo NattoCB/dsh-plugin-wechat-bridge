@@ -4,6 +4,12 @@ All notable changes to this plugin are documented in this file.
 
 ## [Unreleased]
 
+- fix(notify): the id badge in the notification header sliced the raw
+  session id head, rendering the constant prefix ("sessio") for ids like
+  `session-abcdef12-…`. New `sessionIdBadge()` strips a leading
+  `session-`/`wechat-` marker first (case-insensitive) and falls back to
+  the raw id when nothing remains (+1 test).
+
 - Surface real model-call failures to WeChat instead of a generic
   「(空回复)」: when the driven turn ends with reason.kind === 'error' and
   produced no assistant text, the bridge now replies
