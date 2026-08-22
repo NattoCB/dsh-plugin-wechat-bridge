@@ -7,6 +7,12 @@
 // message after local midnight lazily creates that day's session, titled
 // "<YYYY-MM-DD>". Days without conversation never materialize a session.
 //
+// One-way session notifications (opt-in, settings `notifyEnabled`): every
+// TOP-LEVEL DSH session's finished turn pings the allowlisted peers with a
+// short fixed-template message. Strictly outbound — never written into any
+// session, so the daily bridge conversation and the notifications cannot
+// pollute each other.
+//
 // Runtime enable/disable (hot plug):
 //   - Boot reads settings `wechatBridge.enabled`. If true, the poll loop starts.
 //   - The `settings/updated` event re-reads the flag and starts/stops live.
@@ -33,6 +39,7 @@ import {
 import { encodeWeixinChatId, decodeWeixinChatId } from './weixin-ids.js';
 import { ERRCODE_SESSION_EXPIRED } from './weixin-types.js';
 import { downloadMediaFromItem, uploadMediaToCdn } from './weixin-media.js';
+import { formatTurnNotification, shouldNotifySession, stripMarkup } from './notify.js';
 import { installModelSelection } from '@deepseek-ai/dsh-agent';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { defineTool } from '@deepseek-ai/dsh-tools';
@@ -50,6 +57,9 @@ const SETTINGS_SCHEMA = z.object({
   // An unset/blank value means NOBODY may drive the agent. Plain string on
   // purpose so the Settings UI renders it as a regular text field.
   allowedPeers: z.string().default(''),
+  // One-way session turn-end notifications to the allowlisted peers. Default
+  // off: the operator opts in per installation (settings.yaml hot-reloads).
+  notifyEnabled: z.boolean().default(false),
 });
 
 /**
@@ -97,18 +107,6 @@ function chunkText(text, limit) {
   const out = [];
   for (let i = 0; i < text.length; i += limit) out.push(text.slice(i, i + limit));
   return out;
-}
-
-function stripMarkup(text) {
-  return text
-    .replace(/<[^>]+>/g, '')
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/__(.*?)__/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/_(.*?)_/g, '$1')
-    .replace(/`{3}[\s\S]*?`{3}/g, (m) => m.replace(/`{3}\w*\n?/g, '').replace(/`{3}/g, ''))
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 }
 
 export const apply = (ctx, config) => {
@@ -175,6 +173,7 @@ class WeixinBridgeService {
       defaultProvider: this.config.defaultProvider || '',
       defaultModel: this.config.defaultModel || '',
       allowedPeers: this.config.allowedPeers || '',
+      notifyEnabled: this.config.notifyEnabled === true,
     });
     installSettingsSection(ctx, SETTINGS_NS, SETTINGS_SCHEMA, {
       enabled: this.config.enabled,
@@ -182,9 +181,22 @@ class WeixinBridgeService {
       defaultProvider: this.config.defaultProvider || '',
       defaultModel: this.config.defaultModel || '',
       allowedPeers: this.config.allowedPeers || '',
+      notifyEnabled: this.config.notifyEnabled === true,
     }, {
       setSource: (current) => { this._settingsSource = current; },
       onChange: () => this._applySettings(),
+    });
+
+    // One-way session notifier: subscribe once at mount. `session/event` is a
+    // post-commit fire-and-forget feed whose listener failures are contained
+    // per listener — unlike the serial `agent/turn-stopping`, a bug here can
+    // never delay or fail anyone's turn. The untagged plugin context receives
+    // every session in the process; narrowing happens in the handler.
+    ctx.on('session/event', (session, event) => {
+      try {
+        if (event?.type !== 'turn/end') return;
+        this._maybeNotifyTurnEnd(session, event.data);
+      } catch { /* notifications must never break sessions */ }
     });
 
     this.ctx.logger?.info?.('[wechat-bridge] service mounted (hot-plug via /wechat or settings wechat-bridge.enabled)');
@@ -562,6 +574,94 @@ class WeixinBridgeService {
       }
     }
     return blocks;
+  }
+
+  // ── one-way session turn-end notifications ──
+  //
+  // Every TOP-LEVEL DSH session's finished turn pings the allowlisted WeChat
+  // peers with a short fixed-template message (no LLM summarization):
+  //   【会话通知：<session name ≤15 chars>（<session id first 6>）】
+  //   <turn response ≤200 chars>
+  //
+  // Strictly one-way BY CONSTRUCTION: the text is sent straight through the
+  // WeChat HTTP API and is never appended to any session, injected into any
+  // agent, or routed through the daily bridge session — so the daily session
+  // never sees these notifications. A peer's reply still arrives through the
+  // normal poll path and drives that day's session as usual. The bridge's own
+  // sessions are skipped entirely (the peer already gets those replies; also
+  // prevents notify → reply → notify loops).
+
+  /**
+   * Gate one `turn/end` event and fire the send in the background. Runs on
+   * the hot session-event path: must never throw and never block the caller.
+   */
+  _maybeNotifyTurnEnd(session, data) {
+    if (!this.running) return; // notifications ride on an enabled bridge
+    if (!this._settingsSource()?.notifyEnabled) return; // opt-in flag
+    // Persistence-backend artifact: closing a crash-orphaned turn when an old
+    // log is reloaded. Not a live turn end — never ping for it.
+    if (data?.reason?.kind === 'interrupted') return;
+    if (!shouldNotifySession(session?.id, session?.header)) return;
+
+    let text;
+    try {
+      text = formatTurnNotification({
+        events: session.events,
+        turn: data.turn,
+        reason: data.reason,
+        sessionId: session.id,
+      });
+    } catch (err) {
+      this.ctx.logger?.warn?.(`[wechat-bridge] notification render failed: ${err.message}`);
+      return;
+    }
+    // Serialize sends so concurrent turn ends cannot reorder within a chat.
+    const run = (this._notifyChain ?? Promise.resolve())
+      .then(() => this._sendSessionNotification(text));
+    this._notifyChain = run.catch(() => { /* logged downstream */ });
+  }
+
+  /** Deliver one notification text to every reachable allowlisted peer. */
+  async _sendSessionNotification(text) {
+    const targets = this._notificationTargets();
+    if (targets.length === 0) {
+      this.ctx.logger?.info?.('[wechat-bridge] session notification skipped: no allowlisted peer with a context_token yet');
+      return;
+    }
+    await Promise.all(targets.map(async ({ creds, peer, contextToken }) => {
+      try {
+        await sendTextMessage(creds, peer, text, contextToken);
+      } catch (err) {
+        this.ctx.logger?.warn?.(`[wechat-bridge] session notification to ${peer} failed: ${err.message}`);
+      }
+    }));
+  }
+
+  /**
+   * (account, peer) pairs a notification may go out through: every enabled
+   * account × every allowlisted peer holding a stored `context_token`. The
+   * token originates from the peer's last inbound message, so a peer who has
+   * never messaged the bot cannot be proactively notified (protocol limit).
+   */
+  _notificationTargets() {
+    const peers = this._allowedPeers();
+    if (peers.length === 0) return [];
+    const out = [];
+    for (const account of this.store.listAccounts()) {
+      if (account.enabled !== 1 || !account.token) continue;
+      const creds = {
+        botToken: account.token,
+        ilinkBotId: account.account_id,
+        baseUrl: account.base_url || 'https://ilinkai.weixin.qq.com',
+        cdnBaseUrl: account.cdn_base_url || 'https://novac2c.cdn.weixin.qq.com/c2c',
+      };
+      for (const peer of peers) {
+        const contextToken = this.store.getContextToken(account.account_id, peer);
+        if (!contextToken) continue;
+        out.push({ creds, peer, contextToken });
+      }
+    }
+    return out;
   }
 
   // Drive one DSH agent session per peer per local calendar day. Messages for
@@ -990,6 +1090,7 @@ class WeixinBridgeService {
           running: this.running,
           defaultProvider: current?.defaultProvider || '',
           defaultModel: current?.defaultModel || '',
+          notifyEnabled: !!current?.notifyEnabled,
           accounts: this.store.listAccounts().map((a) => ({
             accountId: a.account_id,
             name: a.name,
@@ -1073,7 +1174,7 @@ class WeixinBridgeService {
         return { kind: 'success', text: 'WeChat bridge disabled.' };
       }
       case 'status':
-        return { kind: 'success', text: `running=${this.running}, accounts=${this.store.listAccounts().length}` };
+        return { kind: 'success', text: `running=${this.running}, accounts=${this.store.listAccounts().length}, notify=${this._settingsSource()?.notifyEnabled ? 'on' : 'off'}` };
       case 'accounts':
         return { kind: 'success', text: this.store.listAccounts().map((a) => `${a.account_id} enabled=${a.enabled} hasToken=${!!a.token}`).join('\n') || '(none)' };
       case 'rm':

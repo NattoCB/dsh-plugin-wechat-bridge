@@ -27,6 +27,7 @@
 - **🔌 运行时热插拔**:Settings UI 页签、`/wechat` 斜杠命令、`settings.yaml` 三种独立控制,启停立即生效,无需重启进程。
 - **🗓️ 每人每天一个会话**:本机时区本地零点轮换,当天首条入站消息惰性创建,标题 `<YYYY-MM-DD>`;当天无对话不产生会话文件,坏日志不会阻塞第二天。
 - **🛡️ 结构上崩溃安全**:跨进程轮询锁(`~/.dsh/wechat-bridge/poll.lock`)、按聊天串行、入站去重(`message_id` 至多一次)、损坏日志隔离为 `.corrupt-<ts>` 并自愈重建。
+- **📣 单向会话通知(可选)**:`notifyEnabled` 开启后,DSH 内**任何顶层会话**的每个 turn 结束都会给白名单微信推送一条固定模板简讯(会话名 ≤15 字 + 会话 id 前 6 位,第二行回复前缀 ≤200 字,无需 LLM 总结);通知严格单向——只经微信 API 直发,不写入任何会话,与每日桥接会话互不污染。
 - **🚪 入站白名单(fail-closed)**:`allowedPeers` 留空 = 拒绝所有人;匹配微信 ID(`from_user_id`)非昵称,逗号分隔,Settings UI 可编辑。
 - **📤 出站媒体**:agent 调用 `wechat_send_file` 工具,把本地生成的图片/视频/文件上传微信 CDN 发给当前对话人(按扩展名路由,可选说明文字)。
 - **📥 入站媒体**:微信发来的图片/文件/视频/语音自动从 CDN 下载并 AES 解密,存入 `WeChatSpace/inbox/<日期>/` 并注明路径;所选模型声明图像输入时,图片以原生 image 内容附带。
@@ -90,10 +91,11 @@ dsh web
 | `defaultProvider` | `''` | 桥接会话的 provider 覆盖(空 = 跟随全局默认;Settings UI 可编辑) |
 | `defaultModel` | `''` | 桥接会话的 model 覆盖(空 = 跟随全局默认;Settings UI 可编辑) |
 | `allowedPeers` | `''` | 入站白名单:允许驱动 agent 的微信 ID(`from_user_id`),逗号分隔;留空 = 拒绝所有人(fail-closed) |
+| `notifyEnabled` | `false` | 单向会话通知开关:任何顶层 DSH 会话的 turn 结束时向白名单微信推送固定模板简讯 |
 | `dataDir` | `~/.dsh/wechat-bridge` | `state.json`(账号 / 令牌 / 偏移)所在目录 |
 | `defaultCwd` | `''` | 新会话的工作目录(否则 `~/.dsh/wechat-bridge/WeChatSpace`) |
 
-`enabled`、`mediaEnabled`、`defaultProvider`、`defaultModel`、`allowedPeers` 同时以 `wechat-bridge:` 段存在于 `~/.dsh/settings.yaml`,编辑保存即热生效:
+`enabled`、`mediaEnabled`、`defaultProvider`、`defaultModel`、`allowedPeers`、`notifyEnabled` 同时以 `wechat-bridge:` 段存在于 `~/.dsh/settings.yaml`,编辑保存即热生效:
 
 ```yaml
 wechat-bridge:
@@ -102,6 +104,7 @@ wechat-bridge:
   defaultProvider: ''  # 桥接会话 provider(空 = 跟随全局默认)
   defaultModel: ''     # 桥接会话 model(空 = 跟随全局默认)
   allowedPeers: 'wxid_abc123, wxid_def456'  # 入站白名单,逗号分隔
+  notifyEnabled: true  # 单向会话通知(见下节)
 ```
 
 ### 入站白名单(fail-closed)
@@ -113,11 +116,25 @@ wechat-bridge:
 - 多个 ID 用英文逗号分隔,如 `wxid_abc123, wxid_def456`。
 - 配置热生效,无需重启;也可以在 Settings UI 页签直接编辑。
 
+### 单向会话通知(`notifyEnabled`)
+
+开启后,DSH 内**任何顶层会话**(GUI 会话、automation 会话……)的每个 turn 结束,都会向 `allowedPeers` 白名单微信推送一条固定模板简讯——纯模板拼接,不经过任何 LLM 总结:
+
+```
+【会话通知:<会话名前 15 字,超出省略...>(会话 id 前 6 位)】
+<该回合最终回复前 200 字,超出省略...>
+```
+
+- **严格单向、互不污染**:通知只经微信 API 直发,不写入任何会话、不注入任何 agent——每日桥接会话完全看不到这些通知;你在微信里回信仍照常进入当天会话。桥接自身的 `wechat-*` 会话整体跳过(回复本来就直接发给对方,避免重复推送与「通知 → 回信 → 再通知」循环)。
+- **过滤规则**:子代理子会话(`origin=subagent` 或 `delegationDepth>0`)不推;崩溃日志重载时补写的 `interrupted` 回合关闭事件不推;回合无文本输出时按结束原因给固定占位(如 `⚠️ 回合失败: ...`)。
+- **送达条件**:微信 ilink 协议要求 `context_token`(来自对方最近一条入站消息),所以只推送给**至少发过一次消息**的白名单联系人;没聊过的联系人无法主动推送(协议限制)。桥接服务处于启用状态且 `notifyEnabled=true` 时才会推送。
+- `/wechat status` 会显示当前 notify 开关;HTTP 状态 API(`/wechat-bridge/status`)含 `notifyEnabled` 字段。
+
 ### 运行时启停(热插拔)
 
 1. **Settings UI 页签**:状态卡(运行状态 + 启用/停用按钮,点击立即生效)、默认模型卡(两个下拉框选择 provider/model,选项来自 DSH 已注册模型)、账号卡(账号 id、token 状态、最近登录时间 + 移除)、扫码绑定。
 2. **斜杠命令**(任意 DSH 会话):
-   - `/wechat status` — 运行中?账号数?
+   - `/wechat status` — 运行中?账号数?通知开关?
    - `/wechat enable` — 立即启动轮询循环(同时写入 `settings.wechat-bridge.enabled=true`)
    - `/wechat disable` — 立即停止轮询循环(写入 `settings.wechat-bridge.enabled=false`)
    - `/wechat accounts` — 列出已配置账号
@@ -138,12 +155,13 @@ UI 页签调用插件自带的 HTTP API(`/wechat-bridge/*`),由宿主 webserver 
 ### 文件结构
 
 ```
-src/index.js        WechatBridgeService:轮询循环、agent 驱动、按天会话、热插拔、/wechat 命令、/wechat-bridge/* HTTP API(服务端渲染二维码)
+src/index.js        WechatBridgeService:轮询循环、agent 驱动、按天会话、热插拔、单向会话通知、/wechat 命令、/wechat-bridge/* HTTP API(服务端渲染二维码)
 client/client.js    客户端 bundle:注册 Settings「微信桥接」section 槽位(React)
 src/weixin-api.js   ilink bot 协议客户端(getupdates/sendmessage/sendtyping/getconfig/qrlogin)
 src/weixin-media.js 入站媒体 CDN 下载 + AES 解密、出站媒体 CDN 上传
 src/weixin-ids.js   synthetic chatId 编解码(weixin::<accountId>::<peerUserId>)
 src/weixin-types.js 协议枚举/常量
+src/notify.js       单向会话通知纯函数(模板渲染、回合文本抽取、会话名/子会话过滤;可单测)
 src/store.js        JSON 文件持久化(账号、context_tokens、偏移;旧目录迁移)
 cordis.patch.yml    bundle patch(注册 wechat-bridge 服务)
 package.json        声明 dsh.bundle + dsh.client(web)
