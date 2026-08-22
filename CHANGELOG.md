@@ -4,7 +4,9 @@ All notable changes to this plugin are documented in this file.
 
 ## [Unreleased]
 
-- One-way session turn-end notifications (`notifyEnabled`, default off): every
+- Settings-tab toggle for one-way session notifications (「会话通知」card,
+  persisted via POST /wechat-bridge/config → settings.yaml).
+- One-way session turn-end notifications (`notifyEnabled`, default ON): every
   top-level DSH session's finished turn pings the allowlisted peers with a
   fixed two-line template (session name ≤15 chars + session id first 6 chars,
   then the turn response ≤200 chars) — no LLM summarization.

@@ -28,7 +28,7 @@
 - **🔌 Runtime hot plug**: three independent controls — Settings UI tab, `/wechat` slash command, `settings.yaml` flag — start/stop take effect immediately, no process restart.
 - **🗓️ One session per peer per day**: local-midnight rotation, lazily created on the first inbound message, titled `<YYYY-MM-DD>`; a day without conversation never materializes a session, and a corrupt log can't block the next day.
 - **🛡️ Crash-safe by construction**: cross-process poll lock (`~/.dsh/wechat-bridge/poll.lock`), per-chat serialization, inbound dedupe (each `message_id` at most once), corrupt logs quarantined as `.corrupt-<ts>` and rebuilt.
-- **📣 One-way session notifications (opt-in)**: with `notifyEnabled` on, the end of EVERY top-level DSH session's turn pushes a fixed-template digest to the allowlisted WeChat peers (session name ≤15 chars + first 6 chars of the session id, then the turn response ≤200 chars — no LLM summarization). Strictly outbound: sent straight through the WeChat API, never written into any session, so the daily bridge conversation and the notifications cannot pollute each other.
+- **📣 One-way session notifications (on by default)**: the end of EVERY top-level DSH session's turn pushes a fixed-template digest to the allowlisted WeChat peers (session name ≤15 chars + first 6 chars of the session id, then the turn response ≤200 chars — no LLM summarization). Strictly outbound: sent straight through the WeChat API, never written into any session, so the daily bridge conversation and the notifications cannot pollute each other.
 - **📤 Outbound media**: the agent calls the `wechat_send_file` tool to upload a local image/video/file to the WeChat CDN and send it to the current peer (routed by extension, optional caption).
 - **📥 Inbound media**: images/files/videos/voice are downloaded from the CDN and AES-decrypted, parked under `WeChatSpace/inbox/<date>/` and described by path; images are attached as native image content when the selected model declares image input.
 - **🧠 GUI-equivalent context**: each day's session is created with the user-global `~/.dsh/AGENTS.md` and the available skill catalog (`<available_skills>`) injected up front, mounting the same agent preset as the GUI.
@@ -91,7 +91,7 @@ Message the bot ("what's on today") — the agent answers as if you were in the 
 | `defaultProvider` | `''` | provider override for bridged sessions (empty = follow global default; editable in the Settings tab) |
 | `defaultModel` | `''` | model override for bridged sessions (empty = follow global default; editable in the Settings tab) |
 | `allowedPeers` | `''` | inbound allowlist: WeChat ids (`from_user_id`) allowed to drive the agent, comma-separated; empty = deny everyone (fail-closed) |
-| `notifyEnabled` | `false` | one-way session notifications: every top-level DSH session's turn end pushes a fixed-template digest to the allowlisted WeChat peers |
+| `notifyEnabled` | `true` | one-way session notifications: every top-level DSH session's turn end pushes a fixed-template digest to the allowlisted WeChat peers; toggle in the Settings tab |
 | `dataDir` | `~/.dsh/wechat-bridge` | where `state.json` (accounts / tokens / offsets) lives |
 | `defaultCwd` | `''` | working dir for new sessions (else `~/.dsh/wechat-bridge/WeChatSpace`) |
 
@@ -116,7 +116,7 @@ wechat-bridge:
 - Multiple ids are comma-separated, e.g. `wxid_abc123, wxid_def456`.
 - Hot-reloaded, no restart; also editable directly in the Settings UI tab.
 
-### One-way session notifications (`notifyEnabled`)
+### One-way session notifications (`notifyEnabled`, on by default)
 
 When enabled, the end of EVERY top-level DSH session's turn (GUI sessions, automation sessions, ...) pushes a fixed-template digest to the `allowedPeers` WeChat peers — pure template concatenation, no LLM in the loop:
 
@@ -128,11 +128,11 @@ When enabled, the end of EVERY top-level DSH session's turn (GUI sessions, autom
 - **Strictly one-way, mutual non-pollution**: notifications go straight through the WeChat API and are never appended to any session or injected into any agent — the daily bridge session never sees them; a reply you send from WeChat still drives that day's session as usual. The bridge's own `wechat-*` sessions are skipped entirely (their replies already reach the peer directly; this also prevents notify → reply → notify loops).
 - **Filters**: subagent children (`origin=subagent` or `delegationDepth>0`) never notify; `interrupted` turn closers appended while reloading crash-orphaned logs never notify; a turn with no assistant text falls back to fixed placeholders by end reason (e.g. `⚠️ 回合失败: ...`).
 - **Delivery condition**: the WeChat ilink protocol requires a `context_token` (originating from the peer's most recent inbound message), so only allowlisted peers who have messaged the bot at least once can be notified. Sends happen only while the bridge service is enabled and `notifyEnabled=true`.
-- `/wechat status` shows the notify flag; the HTTP status API (`/wechat-bridge/status`) exposes `notifyEnabled`.
+- The Settings tab renders a toggle for this flag (persisted via the `/wechat-bridge/config` API into settings.yaml); `/wechat status` shows it too.
 
 ### Runtime enable / disable (hot plug)
 
-1. **Settings UI tab**: status card (running state + enable/disable button, effective immediately), default-model card (two dropdowns pick provider/model from DSH's registered models), accounts card (account id, token status, last login time + remove), QR bind.
+1. **Settings UI tab**: status card (running state + enable/disable button, effective immediately), session-notifications card (one-way notify toggle, on by default), default-model card (two dropdowns pick provider/model from DSH's registered models), accounts card (account id, token status, last login time + remove), QR bind.
 2. **Slash command** (in any DSH chat):
    - `/wechat status` — running? account count? notification flag?
    - `/wechat enable` — start the poll loop now (also writes `settings.wechat-bridge.enabled=true`)

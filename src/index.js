@@ -58,8 +58,8 @@ const SETTINGS_SCHEMA = z.object({
   // purpose so the Settings UI renders it as a regular text field.
   allowedPeers: z.string().default(''),
   // One-way session turn-end notifications to the allowlisted peers. Default
-  // off: the operator opts in per installation (settings.yaml hot-reloads).
-  notifyEnabled: z.boolean().default(false),
+  // ON: the Settings tab renders a toggle (persisted via settings.yaml).
+  notifyEnabled: z.boolean().default(true),
 });
 
 /**
@@ -173,7 +173,7 @@ class WeixinBridgeService {
       defaultProvider: this.config.defaultProvider || '',
       defaultModel: this.config.defaultModel || '',
       allowedPeers: this.config.allowedPeers || '',
-      notifyEnabled: this.config.notifyEnabled === true,
+      notifyEnabled: this.config.notifyEnabled !== false,
     });
     installSettingsSection(ctx, SETTINGS_NS, SETTINGS_SCHEMA, {
       enabled: this.config.enabled,
@@ -181,7 +181,7 @@ class WeixinBridgeService {
       defaultProvider: this.config.defaultProvider || '',
       defaultModel: this.config.defaultModel || '',
       allowedPeers: this.config.allowedPeers || '',
-      notifyEnabled: this.config.notifyEnabled === true,
+      notifyEnabled: this.config.notifyEnabled !== false,
     }, {
       setSource: (current) => { this._settingsSource = current; },
       onChange: () => this._applySettings(),
@@ -1110,6 +1110,8 @@ class WeixinBridgeService {
         const patch = {};
         if (typeof body.defaultProvider === 'string') patch.defaultProvider = body.defaultProvider;
         if (typeof body.defaultModel === 'string') patch.defaultModel = body.defaultModel;
+        // Settings-tab notification toggle.
+        if (typeof body.notifyEnabled === 'boolean') patch.notifyEnabled = body.notifyEnabled;
         if (Object.keys(patch).length === 0) return send(400, { error: 'no fields to update' });
         await settings.update(SETTINGS_NS, patch);
         return send(200, { ok: true, ...this._settingsSource() });

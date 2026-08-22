@@ -27,7 +27,7 @@
 - **🔌 运行时热插拔**:Settings UI 页签、`/wechat` 斜杠命令、`settings.yaml` 三种独立控制,启停立即生效,无需重启进程。
 - **🗓️ 每人每天一个会话**:本机时区本地零点轮换,当天首条入站消息惰性创建,标题 `<YYYY-MM-DD>`;当天无对话不产生会话文件,坏日志不会阻塞第二天。
 - **🛡️ 结构上崩溃安全**:跨进程轮询锁(`~/.dsh/wechat-bridge/poll.lock`)、按聊天串行、入站去重(`message_id` 至多一次)、损坏日志隔离为 `.corrupt-<ts>` 并自愈重建。
-- **📣 单向会话通知(可选)**:`notifyEnabled` 开启后,DSH 内**任何顶层会话**的每个 turn 结束都会给白名单微信推送一条固定模板简讯(会话名 ≤15 字 + 会话 id 前 6 位,第二行回复前缀 ≤200 字,无需 LLM 总结);通知严格单向——只经微信 API 直发,不写入任何会话,与每日桥接会话互不污染。
+- **📣 单向会话通知(默认开启)**:DSH 内**任何顶层会话**的每个 turn 结束都会给白名单微信推送一条固定模板简讯(会话名 ≤15 字 + 会话 id 前 6 位,第二行回复前缀 ≤200 字,无需 LLM 总结);通知严格单向——只经微信 API 直发,不写入任何会话,与每日桥接会话互不污染。Settings 页签有开关。
 - **🚪 入站白名单(fail-closed)**:`allowedPeers` 留空 = 拒绝所有人;匹配微信 ID(`from_user_id`)非昵称,逗号分隔,Settings UI 可编辑。
 - **📤 出站媒体**:agent 调用 `wechat_send_file` 工具,把本地生成的图片/视频/文件上传微信 CDN 发给当前对话人(按扩展名路由,可选说明文字)。
 - **📥 入站媒体**:微信发来的图片/文件/视频/语音自动从 CDN 下载并 AES 解密,存入 `WeChatSpace/inbox/<日期>/` 并注明路径;所选模型声明图像输入时,图片以原生 image 内容附带。
@@ -91,7 +91,7 @@ dsh web
 | `defaultProvider` | `''` | 桥接会话的 provider 覆盖(空 = 跟随全局默认;Settings UI 可编辑) |
 | `defaultModel` | `''` | 桥接会话的 model 覆盖(空 = 跟随全局默认;Settings UI 可编辑) |
 | `allowedPeers` | `''` | 入站白名单:允许驱动 agent 的微信 ID(`from_user_id`),逗号分隔;留空 = 拒绝所有人(fail-closed) |
-| `notifyEnabled` | `false` | 单向会话通知开关:任何顶层 DSH 会话的 turn 结束时向白名单微信推送固定模板简讯 |
+| `notifyEnabled` | `true` | 单向会话通知开关:任何顶层 DSH 会话的 turn 结束时向白名单微信推送固定模板简讯;Settings 页签可开关 |
 | `dataDir` | `~/.dsh/wechat-bridge` | `state.json`(账号 / 令牌 / 偏移)所在目录 |
 | `defaultCwd` | `''` | 新会话的工作目录(否则 `~/.dsh/wechat-bridge/WeChatSpace`) |
 
@@ -116,9 +116,9 @@ wechat-bridge:
 - 多个 ID 用英文逗号分隔,如 `wxid_abc123, wxid_def456`。
 - 配置热生效,无需重启;也可以在 Settings UI 页签直接编辑。
 
-### 单向会话通知(`notifyEnabled`)
+### 单向会话通知(`notifyEnabled`,默认开启)
 
-开启后,DSH 内**任何顶层会话**(GUI 会话、automation 会话……)的每个 turn 结束,都会向 `allowedPeers` 白名单微信推送一条固定模板简讯——纯模板拼接,不经过任何 LLM 总结:
+开启时,DSH 内**任何顶层会话**(GUI 会话、automation 会话……)的每个 turn 结束,都会向 `allowedPeers` 白名单微信推送一条固定模板简讯——纯模板拼接,不经过任何 LLM 总结:
 
 ```
 【会话通知:<会话名前 15 字,超出省略...>(会话 id 前 6 位)】
@@ -132,7 +132,7 @@ wechat-bridge:
 
 ### 运行时启停(热插拔)
 
-1. **Settings UI 页签**:状态卡(运行状态 + 启用/停用按钮,点击立即生效)、默认模型卡(两个下拉框选择 provider/model,选项来自 DSH 已注册模型)、账号卡(账号 id、token 状态、最近登录时间 + 移除)、扫码绑定。
+1. **Settings UI 页签**:状态卡(运行状态 + 启用/停用按钮,点击立即生效)、会话通知卡(单向通知开关,默认开启)、默认模型卡(两个下拉框选择 provider/model,选项来自 DSH 已注册模型)、账号卡(账号 id、token 状态、最近登录时间 + 移除)、扫码绑定。
 2. **斜杠命令**(任意 DSH 会话):
    - `/wechat status` — 运行中?账号数?通知开关?
    - `/wechat enable` — 立即启动轮询循环(同时写入 `settings.wechat-bridge.enabled=true`)
