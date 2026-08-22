@@ -424,18 +424,23 @@ class WeixinBridgeService {
     const chatId = encodeWeixinChatId(accountId, peer);
 
     // Fail-closed peer allowlist (settings `allowedPeers`, comma-separated
-    // WeChat ids). An unset/blank list means NOBODY may drive the agent —
-    // deny everyone by default. Rejection happens before dedupe/storage so
-    // unknown peers never touch the session store; a one-line hint tells the
-    // operator the peer id so they can self-enroll in Settings.
+    // bot-internal peer ids). An unset/blank list means NOBODY may drive the
+    // agent — deny everyone by default. Rejection happens before dedupe/storage
+    // so unknown peers never touch the session store. The id is an opaque bot
+    // internal id, NOT the WeChat alias: a stranger messaging the bot gets it
+    // echoed back in the hint below. The context token is persisted even for
+    // denied peers so their id shows up as a clickable chip in the Settings
+    // tab's allowlist card ("已对话过的 ID") — that conversation is the only
+    // way to discover these ids.
     if (!this._allowedPeers().includes(peer)) {
       this.ctx.logger?.info?.(`[wechat-bridge] rejecting non-allowlisted peer ${peer}`);
       try {
         const contextToken = msg.context_token || this.store.getContextToken(accountId, peer);
+        if (msg.context_token) this.store.upsertContextToken(accountId, peer, msg.context_token);
         if (contextToken) {
           await sendTextMessage(creds, peer,
-            `当前微信 ID: ${peer}\n该 ID 未加入白名单,本次消息已忽略。\n` +
-            `如需放行,请在 DSH 设置 → wechat-bridge → allowedPeers 填入此 ID(多个 ID 用英文逗号分隔)。`,
+            `当前 ID: ${peer}\n该 ID 未加入白名单,本次消息已忽略。\n` +
+            `如需放行,请在 DSH 设置 → 微信桥接 → 入站白名单 填入此 ID(多个 ID 用英文逗号分隔)。`,
             contextToken);
         }
       } catch { /* hint delivery is best-effort */ }
@@ -1091,6 +1096,11 @@ class WeixinBridgeService {
           defaultProvider: current?.defaultProvider || '',
           defaultModel: current?.defaultModel || '',
           notifyEnabled: !!current?.notifyEnabled,
+          allowedPeers: current?.allowedPeers || '',
+          // Peer ids holding a context token — people who have messaged the
+          // bot at least once. This is where the opaque internal peer ids
+          // (not WeChat aliases) become visible after a first conversation.
+          knownPeers: this.store.listKnownPeers(),
           accounts: this.store.listAccounts().map((a) => ({
             accountId: a.account_id,
             name: a.name,
@@ -1112,6 +1122,9 @@ class WeixinBridgeService {
         if (typeof body.defaultModel === 'string') patch.defaultModel = body.defaultModel;
         // Settings-tab notification toggle.
         if (typeof body.notifyEnabled === 'boolean') patch.notifyEnabled = body.notifyEnabled;
+        // Settings-tab allowlist editor (comma-separated internal peer ids;
+        // empty string = deny everyone).
+        if (typeof body.allowedPeers === 'string') patch.allowedPeers = body.allowedPeers.trim();
         if (Object.keys(patch).length === 0) return send(400, { error: 'no fields to update' });
         await settings.update(SETTINGS_NS, patch);
         return send(200, { ok: true, ...this._settingsSource() });

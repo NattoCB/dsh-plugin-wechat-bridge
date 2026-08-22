@@ -4,6 +4,14 @@ All notable changes to this plugin are documented in this file.
 
 ## [Unreleased]
 
+- Settings-tab allowlist editor (「入站白名单」card): edit `allowedPeers`
+  directly (normalized comma-separated), persisted via
+  POST /wechat-bridge/config → settings.yaml. Shows clickable
+  「已对话过的 ID」chips built from stored context tokens — the opaque
+  internal peer ids only become known through an actual conversation, so
+  denied peers now also get their context token recorded and their id
+  echoed back by the bot. Card carries an explicit hint that these ids are
+  NOT WeChat aliases/nicknames.
 - Settings-tab toggle for one-way session notifications (「会话通知」card,
   persisted via POST /wechat-bridge/config → settings.yaml).
 - One-way session turn-end notifications (`notifyEnabled`, default ON): every

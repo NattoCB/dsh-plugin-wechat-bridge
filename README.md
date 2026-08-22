@@ -28,7 +28,7 @@
 - **🗓️ 每人每天一个会话**:本机时区本地零点轮换,当天首条入站消息惰性创建,标题 `<YYYY-MM-DD>`;当天无对话不产生会话文件,坏日志不会阻塞第二天。
 - **🛡️ 结构上崩溃安全**:跨进程轮询锁(`~/.dsh/wechat-bridge/poll.lock`)、按聊天串行、入站去重(`message_id` 至多一次)、损坏日志隔离为 `.corrupt-<ts>` 并自愈重建。
 - **📣 单向会话通知(默认开启)**:DSH 内**任何顶层会话**的每个 turn 结束都会给白名单微信推送一条固定模板简讯(会话名 ≤15 字 + 会话 id 前 6 位,第二行回复前缀 ≤200 字,无需 LLM 总结);通知严格单向——只经微信 API 直发,不写入任何会话,与每日桥接会话互不污染。Settings 页签有开关。
-- **🚪 入站白名单(fail-closed)**:`allowedPeers` 留空 = 拒绝所有人;匹配微信 ID(`from_user_id`)非昵称,逗号分隔,Settings UI 可编辑。
+- **🚪 入站白名单(fail-closed)**:`allowedPeers` 留空 = 拒绝所有人;匹配的是机器人内部联系人 ID(一串奇怪的字符,**不是微信号/昵称**),逗号分隔;Settings 页签「入站白名单」卡直接编辑,对话过的 ID 以 chip 一键填入。
 - **📤 出站媒体**:agent 调用 `wechat_send_file` 工具,把本地生成的图片/视频/文件上传微信 CDN 发给当前对话人(按扩展名路由,可选说明文字)。
 - **📥 入站媒体**:微信发来的图片/文件/视频/语音自动从 CDN 下载并 AES 解密,存入 `WeChatSpace/inbox/<日期>/` 并注明路径;所选模型声明图像输入时,图片以原生 image 内容附带。
 - **🧠 上下文与 GUI 等价**:每天会话注入用户全局 `~/.dsh/AGENTS.md` 全文与可用 skill 目录(`<available_skills>`),并挂载与 GUI 相同的 agent preset。
@@ -90,7 +90,7 @@ dsh web
 | `mediaEnabled` | `true` | 接收入站媒体(下载 / 解密 / 落盘) |
 | `defaultProvider` | `''` | 桥接会话的 provider 覆盖(空 = 跟随全局默认;Settings UI 可编辑) |
 | `defaultModel` | `''` | 桥接会话的 model 覆盖(空 = 跟随全局默认;Settings UI 可编辑) |
-| `allowedPeers` | `''` | 入站白名单:允许驱动 agent 的微信 ID(`from_user_id`),逗号分隔;留空 = 拒绝所有人(fail-closed) |
+| `allowedPeers` | `''` | 入站白名单:允许驱动 agent 的机器人内部联系人 ID(非微信号/昵称),逗号分隔;留空 = 拒绝所有人(fail-closed);Settings 页签可编辑 |
 | `notifyEnabled` | `true` | 单向会话通知开关:任何顶层 DSH 会话的 turn 结束时向白名单微信推送固定模板简讯;Settings 页签可开关 |
 | `dataDir` | `~/.dsh/wechat-bridge` | `state.json`(账号 / 令牌 / 偏移)所在目录 |
 | `defaultCwd` | `''` | 新会话的工作目录(否则 `~/.dsh/wechat-bridge/WeChatSpace`) |
@@ -103,18 +103,19 @@ wechat-bridge:
   mediaEnabled: true
   defaultProvider: ''  # 桥接会话 provider(空 = 跟随全局默认)
   defaultModel: ''     # 桥接会话 model(空 = 跟随全局默认)
-  allowedPeers: 'wxid_abc123, wxid_def456'  # 入站白名单,逗号分隔
+  allowedPeers: 'NhatoCola_F, abCdEf_12345'  # 入站白名单(机器人内部 ID),逗号分隔
   notifyEnabled: true  # 单向会话通知(见下节)
 ```
 
 ### 入站白名单(fail-closed)
 
-`allowedPeers` 是**默认拒绝**的入站闸门:只有列表内的微信 ID 能驱动 agent 会话。
+`allowedPeers` 是**默认拒绝**的入站闸门:只有列表内的 ID 能驱动 agent 会话。
 
-- **留空 = 拒绝所有人**(安全默认,而非放行所有人)——未入列的 ID 发来消息会被忽略,并收到一条含其微信 ID 的提示,便于你在 Settings 页签里把自己加进去。
-- 匹配对象是**微信 ID**(`from_user_id`),不是昵称——昵称会变,ID 稳定。
-- 多个 ID 用英文逗号分隔,如 `wxid_abc123, wxid_def456`。
-- 配置热生效,无需重启;也可以在 Settings UI 页签直接编辑。
+- **留空 = 拒绝所有人**(安全默认,而非放行所有人)。
+- **这里的 ID 不是微信号,也不是昵称**,而是微信机器人协议的内部联系人 ID(一串奇怪的字符,如 `NhatoCola_F`),无法从微信资料里查到。
+- **获取方式**:用对方微信给机器人发一条消息——即使未入白名单,机器人也会自动回复该 ID;同时该 ID 会出现在 Settings 页签「入站白名单」卡的「已对话过的 ID」chip 列表里,点一下即可填入输入框。
+- Settings 页签「入站白名单」卡可直接编辑(逗号分隔,中英文逗号均可,保存时自动规范化)并持久化到 `settings.yaml`;`/wechat-bridge/config` API 同样接受 `allowedPeers` 字段。
+- 配置热生效,无需重启。
 
 ### 单向会话通知(`notifyEnabled`,默认开启)
 
@@ -132,7 +133,7 @@ wechat-bridge:
 
 ### 运行时启停(热插拔)
 
-1. **Settings UI 页签**:状态卡(运行状态 + 启用/停用按钮,点击立即生效)、会话通知卡(单向通知开关,默认开启)、默认模型卡(两个下拉框选择 provider/model,选项来自 DSH 已注册模型)、账号卡(账号 id、token 状态、最近登录时间 + 移除)、扫码绑定。
+1. **Settings UI 页签**:状态卡(运行状态 + 启用/停用按钮,点击立即生效)、会话通知卡(单向通知开关,默认开启)、入站白名单卡(直接编辑 + 已对话过的 ID chips + 获取 ID 提示)、默认模型卡(两个下拉框选择 provider/model,选项来自 DSH 已注册模型)、账号卡(账号 id、token 状态、最近登录时间 + 移除)、扫码绑定。
 2. **斜杠命令**(任意 DSH 会话):
    - `/wechat status` — 运行中?账号数?通知开关?
    - `/wechat enable` — 立即启动轮询循环(同时写入 `settings.wechat-bridge.enabled=true`)

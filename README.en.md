@@ -28,6 +28,7 @@
 - **🔌 Runtime hot plug**: three independent controls — Settings UI tab, `/wechat` slash command, `settings.yaml` flag — start/stop take effect immediately, no process restart.
 - **🗓️ One session per peer per day**: local-midnight rotation, lazily created on the first inbound message, titled `<YYYY-MM-DD>`; a day without conversation never materializes a session, and a corrupt log can't block the next day.
 - **🛡️ Crash-safe by construction**: cross-process poll lock (`~/.dsh/wechat-bridge/poll.lock`), per-chat serialization, inbound dedupe (each `message_id` at most once), corrupt logs quarantined as `.corrupt-<ts>` and rebuilt.
+- **🚪 Inbound allowlist (fail-closed)**: empty `allowedPeers` = deny everyone; matching on the bot's internal peer id — an opaque string that is **not** the WeChat alias/nickname; comma-separated; editable in the Settings tab's allowlist card, with one-click chips for ids seen in conversation.
 - **📣 One-way session notifications (on by default)**: the end of EVERY top-level DSH session's turn pushes a fixed-template digest to the allowlisted WeChat peers (session name ≤15 chars + first 6 chars of the session id, then the turn response ≤200 chars — no LLM summarization). Strictly outbound: sent straight through the WeChat API, never written into any session, so the daily bridge conversation and the notifications cannot pollute each other.
 - **📤 Outbound media**: the agent calls the `wechat_send_file` tool to upload a local image/video/file to the WeChat CDN and send it to the current peer (routed by extension, optional caption).
 - **📥 Inbound media**: images/files/videos/voice are downloaded from the CDN and AES-decrypted, parked under `WeChatSpace/inbox/<date>/` and described by path; images are attached as native image content when the selected model declares image input.
@@ -90,7 +91,7 @@ Message the bot ("what's on today") — the agent answers as if you were in the 
 | `mediaEnabled` | `true` | accept inbound media (download / decrypt / park) |
 | `defaultProvider` | `''` | provider override for bridged sessions (empty = follow global default; editable in the Settings tab) |
 | `defaultModel` | `''` | model override for bridged sessions (empty = follow global default; editable in the Settings tab) |
-| `allowedPeers` | `''` | inbound allowlist: WeChat ids (`from_user_id`) allowed to drive the agent, comma-separated; empty = deny everyone (fail-closed) |
+| `allowedPeers` | `''` | inbound allowlist: internal bot peer ids allowed to drive the agent (NOT WeChat aliases), comma-separated; empty = deny everyone (fail-closed); editable in the Settings tab |
 | `notifyEnabled` | `true` | one-way session notifications: every top-level DSH session's turn end pushes a fixed-template digest to the allowlisted WeChat peers; toggle in the Settings tab |
 | `dataDir` | `~/.dsh/wechat-bridge` | where `state.json` (accounts / tokens / offsets) lives |
 | `defaultCwd` | `''` | working dir for new sessions (else `~/.dsh/wechat-bridge/WeChatSpace`) |
@@ -103,18 +104,19 @@ wechat-bridge:
   mediaEnabled: true
   defaultProvider: ''  # bridged-session provider (empty = follow global default)
   defaultModel: ''     # bridged-session model (empty = follow global default)
-  allowedPeers: 'wxid_abc123, wxid_def456'  # inbound allowlist, comma-separated
+  allowedPeers: 'NhatoCola_F, abCdEf_12345'  # inbound allowlist (internal bot peer ids), comma-separated
   notifyEnabled: true  # one-way session notifications (see below)
 ```
 
 ### Inbound allowlist (fail-closed)
 
-`allowedPeers` is a **deny-by-default** inbound gate: only the WeChat ids listed may drive an agent session.
+`allowedPeers` is a **deny-by-default** inbound gate: only the listed ids may drive an agent session.
 
-- **Empty means nobody** (the safe default, not everyone) — messages from non-listed ids are ignored, and the sender gets a hint carrying their WeChat id so the operator can enroll themselves in the Settings tab.
-- Matching is on the **WeChat id** (`from_user_id`), not the display name — names change, ids are stable.
-- Multiple ids are comma-separated, e.g. `wxid_abc123, wxid_def456`.
-- Hot-reloaded, no restart; also editable directly in the Settings UI tab.
+- **Empty means nobody** (the safe default, not everyone).
+- **These are NOT WeChat aliases or nicknames.** The protocol identifies peers by an opaque internal id (e.g. `NhatoCola_F`) that cannot be looked up from a WeChat profile.
+- **How to get one**: message the bot from that WeChat account — even when denied, the bot replies with the id; and the id then appears as a clickable chip under 「已对话过的 ID」 in the Settings tab's allowlist card.
+- The Settings tab's allowlist card edits the list directly (comma-separated; both ASCII and full-width commas accepted; normalized on save) and persists to `settings.yaml`; the `/wechat-bridge/config` API also accepts an `allowedPeers` field.
+- Hot-reloaded, no restart.
 
 ### One-way session notifications (`notifyEnabled`, on by default)
 
@@ -132,7 +134,7 @@ When enabled, the end of EVERY top-level DSH session's turn (GUI sessions, autom
 
 ### Runtime enable / disable (hot plug)
 
-1. **Settings UI tab**: status card (running state + enable/disable button, effective immediately), session-notifications card (one-way notify toggle, on by default), default-model card (two dropdowns pick provider/model from DSH's registered models), accounts card (account id, token status, last login time + remove), QR bind.
+1. **Settings UI tab**: status card (running state + enable/disable button, effective immediately), session-notifications card (one-way notify toggle, on by default), allowlist card (direct editing + seen-in-conversation id chips + how-to-get-an-id hint), default-model card (two dropdowns pick provider/model from DSH's registered models), accounts card (account id, token status, last login time + remove), QR bind.
 2. **Slash command** (in any DSH chat):
    - `/wechat status` — running? account count? notification flag?
    - `/wechat enable` — start the poll loop now (also writes `settings.wechat-bridge.enabled=true`)

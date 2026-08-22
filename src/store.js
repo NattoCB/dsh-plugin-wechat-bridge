@@ -142,6 +142,22 @@ export class Store {
     delete d.contextTokens[accountId];
     this._save();
   }
+  /**
+   * Deduplicated peer ids holding a context token across all accounts —
+   * the people who have messaged the bot at least once. The Settings tab
+   * lists these as clickable chips: internal peer ids are opaque and only
+   * become known through an actual conversation.
+   */
+  listKnownPeers() {
+    const d = this._load();
+    const out = [];
+    for (const peers of Object.values(d.contextTokens || {})) {
+      for (const peer of Object.keys(peers || {})) {
+        if (!out.includes(peer)) out.push(peer);
+      }
+    }
+    return out;
+  }
 
   // ── poll offsets ──
   getOffset(key) {
